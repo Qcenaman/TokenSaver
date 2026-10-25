@@ -154,6 +154,23 @@ func checkAllowed(p string) error {
 	return nil
 }
 
+// checkReadable is checkAllowed, except Program Files may be read (never written).
+func checkReadable(p string) error {
+	if isWin {
+		for _, v := range []string{"ProgramFiles", "ProgramFiles(x86)", "ProgramW6432"} {
+			if s := os.Getenv(v); s != "" && hasPathPrefix(p, s) {
+				for _, b := range []string{"SystemRoot", "ProgramData"} {
+					if t := os.Getenv(b); t != "" && hasPathPrefix(p, t) {
+						return checkAllowed(p)
+					}
+				}
+				return nil
+			}
+		}
+	}
+	return checkAllowed(p)
+}
+
 // checkDeletable refuses whole drives, the user folder and the standard folders themselves.
 func checkDeletable(p string) error {
 	if err := checkAllowed(p); err != nil {

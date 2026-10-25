@@ -10,8 +10,11 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -36,7 +39,7 @@ func toolScan(raw json.RawMessage) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if err := checkAllowed(p); err != nil {
+	if err := checkReadable(p); err != nil {
 		return "", err
 	}
 	info, err := os.Stat(p)
@@ -219,6 +222,7 @@ type findArgs struct {
 	OlderThan     string  `json:"older_than"`
 	Recursive     *bool   `json:"recursive"`
 	Limit         int     `json:"limit"`
+	All           bool    `json:"all"`
 }
 
 func toolFind(raw json.RawMessage) (string, error) {
@@ -269,87 +273,103 @@ func toolFind(raw json.RawMessage) (string, error) {
 	}
 	limit = min(limit, 500)
 	deadline := time.Now().Add(40 * time.Second)
-	var out []string
-	scanned, hitLimit, timedOut := 0, false, false
+	var roots []string
 	for _, raw := range a.Path {
 		root, err := expandPath(raw)
 		if err != nil {
 			return "", err
 		}
-		if err := checkAllowed(root); err != nil {
+		if err := checkReadable(root); err != nil {
 			return "", err
 		}
-		filepath.WalkDir(root, func(q string, d fs.DirEntry, err error) error {
-			if err != nil {
-				if d != nil && d.IsDir() && q != root {
-					return fs.SkipDir
-				}
+		roots = append(roots, root)
+	}
+	var (
+		mu                 sync.Mutex
+		out                []string
+		hitLimit, timedOut atomic.Bool
+		scanned, skipped   atomic.Int64
+	)
+	full := func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(out) >= limit
+	}
+	visit := func(root, dir string, ents []fs.DirEntry) []string {
+		var sub []string
+		for _, d := range ents {
+			if full() {
+				hitLimit.Store(true)
 				return nil
-			}
-			if len(out) >= limit {
-				hitLimit = true
-				return fs.SkipAll
 			}
 			if time.Now().After(deadline) {
-				timedOut = true
-				return fs.SkipAll
+				timedOut.Store(true)
+				return nil
 			}
 			name := d.Name()
+			q := filepath.Join(dir, name)
 			rel, _ := filepath.Rel(root, q)
 			if d.Type()&(fs.ModeSymlink|fs.ModeIrregular) != 0 {
-				if d.IsDir() {
-					return fs.SkipDir
-				}
-				return nil
+				continue
 			}
 			if d.IsDir() {
-				if q == root {
-					return nil
+				if !f.recursive || name == trashName || !f.dirOK(name, rel) || checkReadable(q) != nil {
+					continue
 				}
-				if name == trashName || !f.dirOK(name, rel) || checkAllowed(q) != nil {
-					return fs.SkipDir
+				if !a.All && isHeavyDir(name, q) {
+					skipped.Add(1)
+					continue
 				}
-				if !f.recursive {
-					return fs.SkipDir
-				}
-				return nil
+				sub = append(sub, q)
+				continue
 			}
 			if !nameMatch(name) {
-				return nil
+				continue
 			}
 			fi, e := d.Info()
 			if e != nil || !f.fileOK(name, rel, fi) {
-				return nil
+				continue
 			}
 			line := fmt.Sprintf("%s · %s · %s", q, hb(fi.Size()), fi.ModTime().Format("2006-01-02"))
 			if lineMatch != nil {
-				scanned++
+				scanned.Add(1)
 				hits := grepFile(q, fi, lineMatch, 2)
 				if len(hits) == 0 {
-					return nil
+					continue
 				}
 				for _, h := range hits {
 					line += "\n   " + h
 				}
 			}
-			out = append(out, line)
-			return nil
-		})
+			mu.Lock()
+			if len(out) < limit {
+				out = append(out, line)
+			} else {
+				hitLimit.Store(true)
+			}
+			mu.Unlock()
+		}
+		return sub
 	}
+	parallelWalk(roots, visit, func() bool { return hitLimit.Load() || timedOut.Load() })
+	sort.Strings(out)
 	var b strings.Builder
 	if len(out) == 0 {
 		b.WriteString("No matches.")
 	} else {
 		fmt.Fprintf(&b, "%d match(es):\n%s", len(out), strings.Join(out, "\n"))
 	}
-	if hitLimit {
+	if hitLimit.Load() {
 		fmt.Fprintf(&b, "\nStopped at the limit of %d; narrow the search or raise limit.", limit)
 	}
-	if timedOut {
-		b.WriteString("\nStopped after 40s; results are partial.")
+	if timedOut.Load() {
+		b.WriteString("\nStopped after 40s; results are partial. Narrow path, or add name/include.")
+	}
+	if n := skipped.Load(); n > 0 {
+		fmt.Fprintf(&b, "\n(skipped %s cache/tool folders like node_modules, .git, venvs, Temp; all:true searches them)", hc(n))
 	}
 	if lineMatch != nil {
-		fmt.Fprintf(&b, "\n(searched inside %s files)", hc(int64(scanned)))
+		fmt.Fprintf(&b, "\n(searched inside %s files)", hc(scanned.Load()))
 	}
 	return b.String(), nil
 }
@@ -422,7 +442,7 @@ func toolRead(raw json.RawMessage) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if err := checkAllowed(p); err != nil {
+	if err := checkReadable(p); err != nil {
 		return "", err
 	}
 	fi, err := os.Stat(p)
@@ -568,4 +588,80 @@ func toolRead(raw json.RawMessage) (string, error) {
 		return "", errors.New("mode must be info, head, tail, lines, grep, text or values")
 	}
 	return strings.TrimRight(b.String(), "\n"), nil
+}
+
+var heavyDirNames = map[string]bool{
+	"node_modules": true, ".git": true, ".svn": true, ".hg": true, "__pycache__": true,
+	".venv": true, "venv": true, "site-packages": true, ".cache": true, ".npm": true,
+	".nuget": true, ".gradle": true, ".m2": true, ".cargo": true, ".rustup": true,
+	".pytest_cache": true, ".mypy_cache": true, ".tox": true, "windows.old": true,
+	"$windows.~bt": true, "$windows.~ws": true, "$sysreset": true, "msocache": true,
+}
+
+// isHeavyDir: folders full of small tool/cache files nobody searches for by hand.
+func isHeavyDir(name, full string) bool {
+	if heavyDirNames[strings.ToLower(name)] {
+		return true
+	}
+	if isWin {
+		l := strings.ToLower(full)
+		for _, s := range []string{`\appdata\local\temp`, `\appdata\local\packages`, `\appdata\local\microsoft`,
+			`\appdata\local\google\chrome\user data`, `\appdata\roaming\microsoft`, `\appdata\local\pip\cache`,
+			`\appdata\local\npm-cache`, `\appdata\local\nvidia\dxcache`, `\appdata\local\d3dscache`} {
+			if strings.HasSuffix(l, s) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// parallelWalk reads directories on several goroutines; visit returns subfolders to descend into.
+func parallelWalk(roots []string, visit func(root, dir string, ents []fs.DirEntry) []string, stop func() bool) {
+	type item struct{ root, dir string }
+	var (
+		mu      sync.Mutex
+		cond    = sync.NewCond(&mu)
+		queue   []item
+		pending int
+	)
+	for _, r := range roots {
+		queue = append(queue, item{r, r})
+		pending++
+	}
+	workers := min(max(runtime.NumCPU()*2, 8), 32)
+	var wg sync.WaitGroup
+	for range workers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				mu.Lock()
+				for len(queue) == 0 && pending > 0 {
+					cond.Wait()
+				}
+				if pending == 0 {
+					mu.Unlock()
+					return
+				}
+				it := queue[len(queue)-1]
+				queue = queue[:len(queue)-1]
+				mu.Unlock()
+				var sub []string
+				if !stop() {
+					if ents, err := os.ReadDir(it.dir); err == nil {
+						sub = visit(it.root, it.dir, ents)
+					}
+				}
+				mu.Lock()
+				for _, s := range sub {
+					queue = append(queue, item{it.root, s})
+				}
+				pending += len(sub) - 1
+				cond.Broadcast()
+				mu.Unlock()
+			}
+		}()
+	}
+	wg.Wait()
 }
