@@ -214,6 +214,7 @@ type AIRequest struct {
 	Recursive  *bool    `json:"recursive,omitempty"`
 	MaxFiles   int      `json:"max_files,omitempty"`
 	Detail     string   `json:"detail,omitempty"`
+	Force      bool     `json:"force,omitempty"`
 }
 
 type aiClient struct {
@@ -608,6 +609,11 @@ func runAI(j *Job) error {
 	}
 	if len(files) == 0 {
 		return errors.New("no readable files found there (" + strings.Join(notes, "; ") + ")")
+	}
+	if !req.Force && j.Spec.Source != "chat" {
+		if w := gpuWarning(); w != "" {
+			return errors.New(strings.Replace(w, "call local_ai again with the same arguments plus force:true", "run it again with force set", 1))
+		}
 	}
 	c, stop, err := openAI(j, req.Model)
 	if err != nil {
