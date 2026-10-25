@@ -170,6 +170,14 @@ func claudeConfigPaths() []string {
 	appdata := os.Getenv("APPDATA")
 	std := filepath.Join(appdata, "Claude", "claude_desktop_config.json")
 	var out []string
+	// Current Store build keeps its data in %LOCALAPPDATA%\Claude-Data\claude_<id>.
+	if dirs, _ := filepath.Glob(filepath.Join(os.Getenv("LOCALAPPDATA"), "Claude-Data", "claude_*")); len(dirs) > 0 {
+		for _, d := range dirs {
+			if fi, err := os.Stat(d); err == nil && fi.IsDir() {
+				out = append(out, filepath.Join(d, "claude_desktop_config.json"))
+			}
+		}
+	}
 	if dirs, _ := filepath.Glob(filepath.Join(os.Getenv("LOCALAPPDATA"), "Packages", "Claude_*", "LocalCache", "Roaming", "Claude")); len(dirs) > 0 {
 		for _, d := range dirs {
 			out = append(out, filepath.Join(d, "claude_desktop_config.json"))
