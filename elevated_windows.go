@@ -162,11 +162,7 @@ func taskInstalled() bool {
 }
 
 func auditPath() string {
-	pd := os.Getenv("ProgramData")
-	if pd == "" {
-		pd = `C:\ProgramData`
-	}
-	return filepath.Join(pd, "TokenSaver", "elevated.log")
+	return filepath.Join(appRoot(), "admin-log", "elevated.log")
 }
 
 var auditMu sync.Mutex
@@ -502,6 +498,12 @@ func consoleInstallHelper() {
 	}
 	// Audit log folder: only admins and SYSTEM can write, you can read.
 	dir := filepath.Dir(auditPath())
+	quietCmd("schtasks", "/End", "/TN", elevTaskName).Run() // the old helper may hold its log or program open
+	if pd := os.Getenv("ProgramData"); pd != "" {
+		if oldDir := filepath.Join(pd, "TokenSaver"); exists(oldDir) {
+			moveTree(oldDir, dir)
+		}
+	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		fail("Couldn't create "+dir+":", err)
 		return
@@ -544,7 +546,7 @@ func consoleInstallHelper() {
   </Actions>
 </Task>
 `
-	tmp := filepath.Join(os.TempDir(), "tokensaver-helper-task.xml")
+	tmp := filepath.Join(filepath.Dir(exe), "helper-task.xml")
 	u := utf16.Encode([]rune(task))
 	b := make([]byte, 2+2*len(u))
 	b[0], b[1] = 0xFF, 0xFE
@@ -598,6 +600,17 @@ func consoleUninstallHelper() {
 	audit("UNINSTALLED helper task")
 }
 
+// refreshHelper points an installed helper at the newly installed program (one UAC prompt).
+func refreshHelper() {
+	if isElevated() || !taskInstalled() {
+		return
+	}
+	fmt.Println("\nUpdating the elevated helper to this version — Windows will ask once for permission...")
+	if err := elevateSelf("install-helper"); err != nil {
+		fmt.Println("Helper not updated (prompt declined?). Update it later from the menu with h.")
+	}
+}
+
 func helperStatus() string {
 	switch {
 	case pipeUp():
@@ -606,4 +619,23 @@ func helperStatus() string {
 		return "installed, not running"
 	}
 	return "not installed"
+}
+
+// moveTree merges src into dst (works across drives) and removes src once it's moved.
+func moveTree(src, dst string) error {
+	if err := os.MkdirAll(dst, 0o755); err != nil {
+		return err
+	}
+	c := quietCmd("robocopy", src, dst, "/E", "/MOVE", "/COPY:DAT", "/DCOPY:T", "/R:1", "/W:1", "/NFL", "/NDL", "/NJH", "/NJS", "/NP")
+	err := c.Run()
+	if c.ProcessState != nil && c.ProcessState.ExitCode() < 8 {
+		if exists(src) {
+			return fmt.Errorf("some files are in use and stayed in %s", src)
+		}
+		return nil
+	}
+	if err == nil {
+		err = fmt.Errorf("robocopy failed")
+	}
+	return err
 }

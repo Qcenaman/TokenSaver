@@ -45,7 +45,7 @@ func waitEnter(msg string, timeout time.Duration) {
 }
 
 func installPath() string {
-	return filepath.Join(os.Getenv("LOCALAPPDATA"), "Programs", "TokenSaver", "tokensaver.exe")
+	return filepath.Join(appRoot(), "app", "tokensaver.exe")
 }
 
 func consoleMenu() {
@@ -268,11 +268,12 @@ func consoleInstall() {
 	if connected == 0 {
 		fmt.Printf("\nAdd this to the \"mcpServers\" section of Claude's claude_desktop_config.json by hand:\n  \"tokensaver\": {\"command\": %q, \"args\": [\"mcp\"]}\n", target)
 	}
+	refreshHelper()
 	migrateOldInstall()
 	os.MkdirAll(jobsFolder(), 0o755)
 	os.WriteFile(filepath.Join(jobsFolder(), "Open TokenSaver.cmd"), []byte("@\""+target+"\"\r\n"), 0o644)
 	fmt.Println("\nAll set. Open Claude (if it's open, quit it from the tray icon and reopen it) so it loads this version.")
-	fmt.Println("Saved jobs will appear in the \"TokenSaver Jobs\" folder on your Desktop.")
+	fmt.Println("Everything TokenSaver keeps is in", appRoot())
 }
 
 func consoleUninstall() {
@@ -327,21 +328,34 @@ func configHasEntry(path, target string) bool {
 	return ok && samePath(e.Command, target) && len(e.Args) == 1 && e.Args[0] == "mcp"
 }
 
-// migrateOldInstall moves things over from when the app was called Claudessistent.
+// migrateOldInstall moves everything older versions left outside appRoot into it:
+// data into data\, and old program copies and Desktop shortcut folders into old\.
+// Nothing is deleted; it is moved.
 func migrateOldInstall() {
-	oldJobs := filepath.Join(desktopDir(), "Claudessistent Jobs")
-	if exists(oldJobs) {
-		if !exists(jobsFolder()) {
-			os.Rename(oldJobs, jobsFolder())
+	if !isWin {
+		return
+	}
+	la := os.Getenv("LOCALAPPDATA")
+	old := filepath.Join(appRoot(), "old")
+	moves := []struct{ src, dst string }{
+		{filepath.Join(la, "TokenSaver"), appHome},
+		{filepath.Join(la, "Claudessistent"), filepath.Join(old, "Claudessistent data")},
+		{filepath.Join(la, "Programs", "TokenSaver"), filepath.Join(old, "TokenSaver program")},
+		{filepath.Join(la, "Programs", "Claudessistent"), filepath.Join(old, "Claudessistent program")},
+		{filepath.Join(desktopDir(), "TokenSaver Jobs"), filepath.Join(old, "Desktop TokenSaver Jobs")},
+		{filepath.Join(desktopDir(), "Claudessistent Jobs"), filepath.Join(old, "Desktop Claudessistent Jobs")},
+	}
+	for _, m := range moves {
+		if !exists(m.src) || samePath(m.src, m.dst) {
+			continue
 		}
-		os.Remove(filepath.Join(jobsFolder(), "Open Claudessistent.cmd"))
-		os.Remove(oldJobs)
+		if err := moveTree(m.src, m.dst); err != nil {
+			fmt.Printf("Couldn't move %s to %s: %v\n", m.src, m.dst, err)
+		} else {
+			fmt.Println("Moved", m.src, "→", m.dst)
+		}
 	}
 	for _, sj := range listSaved() {
 		writeShortcut(sj.Name)
-	}
-	oldDir := filepath.Join(os.Getenv("LOCALAPPDATA"), "Programs", "Claudessistent")
-	if exists(oldDir) && os.RemoveAll(oldDir) == nil {
-		fmt.Println("Removed the old Claudessistent copy.")
 	}
 }

@@ -19,3 +19,7 @@ func consoleInstallHelper() { fmt.Println(errElevWindowsOnly) }
 func consoleUninstallHelper() { fmt.Println(errElevWindowsOnly) }
 
 func helperStatus() string { return "not available" }
+
+func refreshHelper() {}
+
+func moveTree(src, dst string) error { return errElevWindowsOnly }

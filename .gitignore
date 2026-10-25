@@ -1,2 +1,7 @@
 tokensaver.exe
 *.exe
+/app/
+/data/
+/old/
+/admin-log/
+/Saved Jobs/

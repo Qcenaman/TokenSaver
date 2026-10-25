@@ -33,24 +33,23 @@ var (
 	cfg     Config
 )
 
+// appRoot is the one folder TokenSaver keeps everything in: the program, its data,
+// the saved-job shortcuts and the admin log. Nothing goes on the Desktop or elsewhere.
+func appRoot() string {
+	if v := os.Getenv("TOKENSAVER_ROOT"); v != "" {
+		return v
+	}
+	if isWin {
+		return `D:\Claude Apps\TokenSaver`
+	}
+	h, _ := os.UserHomeDir()
+	return filepath.Join(h, ".tokensaver")
+}
+
 func initApp() {
 	appHome = os.Getenv("TOKENSAVER_HOME")
 	if appHome == "" {
-		if isWin {
-			appHome = filepath.Join(os.Getenv("LOCALAPPDATA"), "TokenSaver")
-		} else {
-			h, _ := os.UserHomeDir()
-			appHome = filepath.Join(h, ".tokensaver")
-		}
-	}
-	if os.Getenv("TOKENSAVER_HOME") == "" {
-		old := filepath.Join(filepath.Dir(appHome), "Claudessistent")
-		if !isWin {
-			old = filepath.Join(filepath.Dir(appHome), ".claudessistent")
-		}
-		if !exists(appHome) && exists(old) {
-			os.Rename(old, appHome)
-		}
+		appHome = filepath.Join(appRoot(), "data")
 	}
 	for _, d := range []string{"jobs", "saved"} {
 		os.MkdirAll(filepath.Join(appHome, d), 0o755)

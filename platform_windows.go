@@ -112,7 +112,8 @@ func driveType(p string) uint32 {
 // so files there go to a holding folder on the same drive instead.
 func useRecycleBin(p string) bool { return driveType(p) == 3 && len(p) < 250 }
 
-func holdRoot(p string) string { return filepath.VolumeName(p) + `\` + trashName }
+// Held (undoable) deletes from drives without a Recycle Bin go into appRoot too.
+func holdRoot(p string) string { return filepath.Join(appRoot(), "undo-hold") }
 
 func stripVol(p string) string {
 	return strings.TrimPrefix(p[len(filepath.VolumeName(p)):], `\`)

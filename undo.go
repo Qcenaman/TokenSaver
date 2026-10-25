@@ -179,12 +179,17 @@ func moveBack(j *Job, from, to string) error {
 	if err == nil || !isCrossDevice(err) {
 		return err
 	}
+	return moveAcross(j, from, to)
+}
+
+// moveAcross moves a file or folder to another drive: copy, then remove the source.
+func moveAcross(j *Job, from, to string) error {
 	fi, err := os.Stat(from)
 	if err != nil {
 		return err
 	}
 	if fi.IsDir() {
-		return errors.New("folder is on another drive now; move it back manually")
+		return moveTree(from, to)
 	}
 	if err := copyFileData(j, from, to, "size", true); err != nil {
 		return err

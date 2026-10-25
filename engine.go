@@ -1175,7 +1175,12 @@ func (j *Job) holdPath(p string) discardRes {
 		return discardRes{orig: p, err: err}
 	}
 	if err := os.Rename(p, dst); err != nil {
-		return discardRes{orig: p, err: fmt.Errorf("couldn't move to the holding folder: %s", cleanErr(err))}
+		if !isCrossDevice(err) {
+			return discardRes{orig: p, err: fmt.Errorf("couldn't move to the holding folder: %s", cleanErr(err))}
+		}
+		if err := moveAcross(j, p, dst); err != nil {
+			return discardRes{orig: p, err: fmt.Errorf("couldn't move to the holding folder: %s", cleanErr(err))}
+		}
 	}
 	return discardRes{orig: p, method: "hold", held: dst}
 }
