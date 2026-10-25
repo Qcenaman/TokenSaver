@@ -220,7 +220,26 @@ func consoleInstall() {
 		fmt.Println("Installed to", target)
 	}
 	connected := 0
+	var todo []string
 	for _, p := range claudeConfigPaths() {
+		if configHasEntry(p, target) {
+			fmt.Println("Already connected to Claude in", p)
+			connected++
+			continue
+		}
+		todo = append(todo, p)
+	}
+	if len(todo) > 0 && claudeRunning() {
+		fmt.Println("\nClaude is open. It rewrites its settings when it closes, which would undo this.")
+		for claudeRunning() {
+			a := prompt("Quit Claude completely (right-click its icon near the clock → Quit), then press Enter. Type s to skip: ")
+			if strings.EqualFold(a, "s") {
+				todo = nil
+				break
+			}
+		}
+	}
+	for _, p := range todo {
 		err := editClaudeConfig(p, func(s map[string]any) {
 			s["claudessistent"] = map[string]any{"command": target, "args": []string{"mcp"}}
 		})
@@ -236,7 +255,7 @@ func consoleInstall() {
 	}
 	os.MkdirAll(jobsFolder(), 0o755)
 	os.WriteFile(filepath.Join(jobsFolder(), "Open Claudessistent.cmd"), []byte("@\""+target+"\"\r\n"), 0o644)
-	fmt.Println("\nAll set. Quit Claude completely and open it again so it picks up Claudessistent.")
+	fmt.Println("\nAll set. Open Claude (if it's open, quit it from the tray icon and reopen it) so it loads this version.")
 	fmt.Println("Saved jobs will appear in the \"Claudessistent Jobs\" folder on your Desktop.")
 }
 
@@ -269,4 +288,22 @@ func copyPlain(src, dst string) error {
 		return err
 	}
 	return out.Close()
+}
+
+func configHasEntry(path, target string) bool {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	var m struct {
+		MCPServers map[string]struct {
+			Command string   `json:"command"`
+			Args    []string `json:"args"`
+		} `json:"mcpServers"`
+	}
+	if json.Unmarshal(b, &m) != nil {
+		return false
+	}
+	e, ok := m.MCPServers["claudessistent"]
+	return ok && samePath(e.Command, target) && len(e.Args) == 1 && e.Args[0] == "mcp"
 }

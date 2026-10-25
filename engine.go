@@ -25,32 +25,38 @@ const (
 var errCanceled = errors.New("canceled")
 
 type Step struct {
-	Op           string  `json:"op"`
-	From         StrList `json:"from,omitempty"`
-	To           string  `json:"to,omitempty"`
-	ContentsOnly bool    `json:"contents_only,omitempty"`
-	Flatten      bool    `json:"flatten,omitempty"`
-	Conflict     string  `json:"conflict,omitempty"`
-	DeleteExtra  bool    `json:"delete_extra,omitempty"`
-	Rules        []Rule  `json:"rules,omitempty"`
-	OnConflict   string  `json:"on_conflict,omitempty"`
-	Counter      string  `json:"counter,omitempty"`
-	Sort         string  `json:"sort,omitempty"`
-	Start        *int    `json:"start,omitempty"`
-	Folders      bool    `json:"folders,omitempty"`
-	Include      string  `json:"include,omitempty"`
-	Exclude      string  `json:"exclude,omitempty"`
-	Recursive    *bool   `json:"recursive,omitempty"`
-	MinSize      string  `json:"min_size,omitempty"`
-	MaxSize      string  `json:"max_size,omitempty"`
-	NewerThan    string  `json:"newer_than,omitempty"`
-	OlderThan    string  `json:"older_than,omitempty"`
-	Verify       string  `json:"verify,omitempty"`
-	Workers      int     `json:"workers,omitempty"`
-	RemoveEmpty  bool    `json:"remove_empty_dirs,omitempty"`
+	Op           string     `json:"op"`
+	From         StrList    `json:"from,omitempty"`
+	To           string     `json:"to,omitempty"`
+	ContentsOnly bool       `json:"contents_only,omitempty"`
+	Flatten      bool       `json:"flatten,omitempty"`
+	Conflict     string     `json:"conflict,omitempty"`
+	DeleteExtra  bool       `json:"delete_extra,omitempty"`
+	Rules        []Rule     `json:"rules,omitempty"`
+	OnConflict   string     `json:"on_conflict,omitempty"`
+	Counter      string     `json:"counter,omitempty"`
+	Sort         string     `json:"sort,omitempty"`
+	Start        *int       `json:"start,omitempty"`
+	Folders      bool       `json:"folders,omitempty"`
+	Include      string     `json:"include,omitempty"`
+	Exclude      string     `json:"exclude,omitempty"`
+	Recursive    *bool      `json:"recursive,omitempty"`
+	MinSize      string     `json:"min_size,omitempty"`
+	MaxSize      string     `json:"max_size,omitempty"`
+	NewerThan    string     `json:"newer_than,omitempty"`
+	OlderThan    string     `json:"older_than,omitempty"`
+	Verify       string     `json:"verify,omitempty"`
+	Workers      int        `json:"workers,omitempty"`
+	RemoveEmpty  bool       `json:"remove_empty_dirs,omitempty"`
+	Name         string     `json:"name,omitempty"`
+	SHA256       string     `json:"sha256,omitempty"`
+	Edits        []TextEdit `json:"edits,omitempty"`
+	Append       string     `json:"append,omitempty"`
+	Content      *string    `json:"content,omitempty"`
 }
 
-var validOps = map[string]bool{"copy": true, "move": true, "sync": true, "delete": true, "rename": true, "mkdir": true}
+var validOps = map[string]bool{"copy": true, "move": true, "sync": true, "delete": true, "rename": true, "mkdir": true,
+	"download": true, "extract": true, "edit": true, "write": true}
 
 func validateSteps(steps []Step) error {
 	if len(steps) == 0 {
@@ -60,7 +66,7 @@ func validateSteps(steps []Step) error {
 		s := &steps[i]
 		s.Op = strings.ToLower(strings.TrimSpace(s.Op))
 		if !validOps[s.Op] {
-			return fmt.Errorf("step %d: unknown op %q (use copy, move, sync, delete, rename, mkdir)", i+1, s.Op)
+			return fmt.Errorf("step %d: unknown op %q (use copy, move, sync, delete, rename, mkdir, download, extract, edit, write)", i+1, s.Op)
 		}
 		switch s.Op {
 		case "copy", "move", "sync":
@@ -74,6 +80,18 @@ func validateSteps(steps []Step) error {
 		case "rename":
 			if len(s.From) == 0 || len(s.Rules) == 0 {
 				return fmt.Errorf("step %d (rename): needs from and rules", i+1)
+			}
+		case "download", "extract":
+			if len(s.From) == 0 || s.To == "" {
+				return fmt.Errorf("step %d (%s): needs from and to", i+1, s.Op)
+			}
+		case "edit":
+			if len(s.From) == 0 || (len(s.Edits) == 0 && s.Append == "") {
+				return fmt.Errorf("step %d (edit): needs from and edits or append", i+1)
+			}
+		case "write":
+			if s.To == "" || s.Content == nil {
+				return fmt.Errorf("step %d (write): needs to and content", i+1)
 			}
 		case "mkdir":
 			if s.To == "" && len(s.From) == 0 {
@@ -371,6 +389,14 @@ func runStep(j *Job, st *Step, res *StepResult) error {
 		return stepRename(j, st, res)
 	case "mkdir":
 		return stepMkdir(j, st, res)
+	case "download":
+		return stepDownload(j, st, res)
+	case "extract":
+		return stepExtract(j, st, res)
+	case "edit":
+		return stepEdit(j, st, res)
+	case "write":
+		return stepWrite(j, st, res)
 	}
 	return fmt.Errorf("unknown op %s", st.Op)
 }
@@ -889,7 +915,8 @@ func retry(j *Job, fn func() error) error {
 	var err error
 	for i := 0; i < 3; i++ {
 		err = fn()
-		if err == nil || errors.Is(err, errCanceled) || errors.Is(err, fs.ErrNotExist) || j.ctx.Err() != nil {
+		var pe permErr
+		if err == nil || errors.Is(err, errCanceled) || errors.Is(err, fs.ErrNotExist) || errors.As(err, &pe) || j.ctx.Err() != nil {
 			return err
 		}
 		if i < 2 {

@@ -94,6 +94,37 @@ func runUndo(j *Job) error {
 				break
 			}
 			pending = append(pending, r.Path)
+		case "edit":
+			flush()
+			fi, err := os.Stat(r.Path)
+			if err != nil {
+				res.err("no longer there: " + r.Path)
+				break
+			}
+			same := fi.Size() == r.Size && fi.ModTime().UnixNano() == r.MTime
+			if !same && r.Hash != "" && fi.Size() == r.Size {
+				h, _ := fileSHA256(r.Path)
+				same = h == r.Hash
+			}
+			if !same {
+				res.add("left alone (changed since)", 1)
+				break
+			}
+			if dry {
+				res.add("would restore previous version", 1)
+				break
+			}
+			tmp := r.Path + ".csundo"
+			if err := copyPlain(r.Held, tmp); err != nil {
+				res.err(fmt.Sprintf("%s: %s", r.Path, cleanErr(err)))
+				break
+			}
+			if err := os.Rename(tmp, r.Path); err != nil {
+				os.Remove(tmp)
+				res.err(fmt.Sprintf("%s: %s", r.Path, cleanErr(err)))
+				break
+			}
+			res.add("restored previous version", 1)
 		case "discard":
 			flush()
 			if exists(r.Path) {

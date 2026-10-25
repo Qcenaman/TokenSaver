@@ -23,6 +23,7 @@ type JobSpec struct {
 	UndoOf string     `json:"undo_of,omitempty"`
 	AI     *AIRequest `json:"ai,omitempty"`
 	Source string     `json:"source,omitempty"`
+	Run    *runArgs   `json:"run,omitempty"`
 }
 
 type StepResult struct {
@@ -173,6 +174,10 @@ type JobState struct {
 	Error      string        `json:"error,omitempty"`
 	Output     string        `json:"output,omitempty"`
 	FirstStep  string        `json:"first_step,omitempty"`
+	PID        int           `json:"pid,omitempty"`
+	ExitCode   *int          `json:"exit_code,omitempty"`
+	Tail       int           `json:"tail,omitempty"`
+	Matched    bool          `json:"matched,omitempty"`
 }
 
 type jrec struct {
@@ -185,6 +190,7 @@ type jrec struct {
 	Size   int64  `json:"size,omitempty"`
 	MTime  int64  `json:"mtime,omitempty"`
 	At     int64  `json:"at,omitempty"`
+	Hash   string `json:"hash,omitempty"`
 }
 
 var running sync.Map
@@ -206,6 +212,8 @@ type Job struct {
 	jfile, lfile *os.File
 	madeDirs     sync.Map
 	done         chan struct{}
+	ready        chan struct{}
+	readyOnce    sync.Once
 }
 
 func newJob(spec JobSpec) (*Job, error) {
@@ -216,13 +224,17 @@ func newJob(spec JobSpec) (*Job, error) {
 		return nil, err
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	j := &Job{ID: id, Dir: dir, Spec: spec, ctx: ctx, cancel: cancel, done: make(chan struct{})}
+	j := &Job{ID: id, Dir: dir, Spec: spec, ctx: ctx, cancel: cancel, done: make(chan struct{}), ready: make(chan struct{})}
 	j.st = JobState{ID: id, Name: spec.Name, Kind: spec.Kind, Source: spec.Source, Status: "running", DryRun: spec.DryRun, Started: time.Now()}
 	if len(spec.Steps) > 0 {
 		j.st.FirstStep = stepTitle(&spec.Steps[0])
 	}
+	if spec.Run != nil {
+		j.st.FirstStep = "$ " + clip(spec.Run.Command, 200)
+		j.st.Tail = spec.Run.Tail
+	}
 	writeJSONAtomic(filepath.Join(dir, "spec.json"), spec)
-	if !spec.DryRun {
+	if !spec.DryRun && spec.Kind != "run" {
 		var err error
 		if j.jfile, err = os.OpenFile(filepath.Join(dir, "undo.jsonl"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644); err != nil {
 			return nil, err
@@ -303,6 +315,8 @@ func (j *Job) run() {
 		fatal = runUndo(j)
 	case "ai":
 		fatal = runAI(j)
+	case "run":
+		fatal = runCommand(j)
 	default:
 		fatal = fmt.Errorf("unknown job kind %q", j.Spec.Kind)
 	}
@@ -398,9 +412,9 @@ func stepTitle(st *Step) string {
 	switch st.Op {
 	case "copy", "move", "sync":
 		return fmt.Sprintf("%s %s → %s", st.Op, from, st.To)
-	case "mkdir":
+	case "mkdir", "write":
 		if st.To != "" {
-			return "mkdir " + st.To
+			return st.Op + " " + st.To
 		}
 	}
 	return st.Op + " " + from
@@ -422,7 +436,12 @@ func loadState(id string) (*JobState, error) {
 		return nil, err
 	}
 	if s.Status == "running" && time.Since(s.Updated) > 20*time.Second {
-		s.Status = "interrupted"
+		if s.Kind == "run" && s.PID > 0 && pidAlive(s.PID) {
+			s.Status = "running"
+			s.Current = "still running after Claude restarted (pid " + fmt.Sprint(s.PID) + ")"
+		} else {
+			s.Status = "interrupted"
+		}
 	}
 	return &s, nil
 }
@@ -474,6 +493,12 @@ func cancelJob(id string) string {
 	if s.Status != "running" {
 		return "Job " + id + " isn't running (" + s.Status + ")."
 	}
+	if s.Kind == "run" && s.PID > 0 && time.Since(s.Updated) > 20*time.Second {
+		killTree(s.PID)
+		s.Status, s.Ended = "canceled", time.Now()
+		writeJSONAtomic(filepath.Join(jobsDir(), id, "state.json"), s)
+		return "Stopped job " + id + " (pid " + fmt.Sprint(s.PID) + ")."
+	}
 	os.WriteFile(filepath.Join(jobsDir(), id, "cancel"), []byte("1"), 0o644)
 	return "Asked job " + id + " to stop; it stops within a second or two."
 }
@@ -516,6 +541,9 @@ func progressLine(s *JobState) string {
 }
 
 func formatState(s *JobState) string {
+	if s.Kind == "run" {
+		return formatRun(s)
+	}
 	var b strings.Builder
 	title := s.ID
 	if s.Name != "" {
@@ -590,6 +618,9 @@ func listJobs(n int) string {
 
 func waitAllJobs() {
 	running.Range(func(_, v any) bool {
+		if v.(*Job).Spec.Kind == "run" {
+			return true
+		}
 		<-v.(*Job).done
 		return true
 	})

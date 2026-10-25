@@ -401,14 +401,16 @@ func grepFile(p string, fi fs.FileInfo, match func(string) bool, maxHits int) []
 // ---------- read ----------
 
 type readArgs struct {
-	Path     string `json:"path"`
-	Mode     string `json:"mode"`
-	Lines    int    `json:"lines"`
-	FromLine int    `json:"from_line"`
-	Pattern  string `json:"pattern"`
-	Regex    bool   `json:"regex"`
-	Context  *int   `json:"context"`
-	MaxChars int    `json:"max_chars"`
+	Path     string   `json:"path"`
+	Mode     string   `json:"mode"`
+	Lines    int      `json:"lines"`
+	FromLine int      `json:"from_line"`
+	Pattern  string   `json:"pattern"`
+	Regex    bool     `json:"regex"`
+	Context  *int     `json:"context"`
+	MaxChars int      `json:"max_chars"`
+	Keys     []string `json:"keys"`
+	Ext      string   `json:"ext"`
 }
 
 func toolRead(raw json.RawMessage) (string, error) {
@@ -426,6 +428,9 @@ func toolRead(raw json.RawMessage) (string, error) {
 	fi, err := os.Stat(p)
 	if err != nil {
 		return "", errors.New(cleanErr(err) + ": " + p)
+	}
+	if strings.ToLower(a.Mode) == "values" {
+		return readValues(p, fi, a.Keys, a.Ext)
 	}
 	if fi.IsDir() {
 		return "", errors.New("that's a folder; use scan")
@@ -560,7 +565,7 @@ func toolRead(raw json.RawMessage) (string, error) {
 			fmt.Fprintf(&b, "[%d matching lines]", hits)
 		}
 	default:
-		return "", errors.New("mode must be info, head, tail, lines, grep or text")
+		return "", errors.New("mode must be info, head, tail, lines, grep, text or values")
 	}
 	return strings.TrimRight(b.String(), "\n"), nil
 }

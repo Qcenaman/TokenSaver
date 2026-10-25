@@ -142,7 +142,7 @@ func describeSteps(steps []Step) string {
 func hasRisky(steps []Step) bool {
 	for _, s := range steps {
 		switch strings.ToLower(s.Op) {
-		case "delete", "rename":
+		case "delete", "rename", "edit", "write", "extract":
 			return true
 		case "sync":
 			if s.DeleteExtra {
