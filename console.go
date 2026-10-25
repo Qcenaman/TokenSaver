@@ -76,7 +76,9 @@ func consoleMenu() {
 				fmt.Printf("  %d. %s — %s\n", i+1, s.Name, clip(describeSteps(s.Steps), 90))
 			}
 		}
-		fmt.Println("\nType a number to run a job · r = reconnect to Claude · u = disconnect from Claude · Enter = quit")
+		fmt.Println("\nElevated helper (admin commands without UAC prompts):", helperStatus())
+		fmt.Println("\nType a number to run a job · r = reconnect to Claude · u = disconnect from Claude")
+		fmt.Println("h = install/restart elevated helper · hu = remove elevated helper · Enter = quit")
 		a := strings.ToLower(prompt("> "))
 		switch a {
 		case "":
@@ -85,6 +87,10 @@ func consoleMenu() {
 			consoleInstall()
 		case "u":
 			consoleUninstall()
+		case "h":
+			consoleInstallHelper()
+		case "hu":
+			consoleUninstallHelper()
 		default:
 			if n, err := strconv.Atoi(a); err == nil && n >= 1 && n <= len(list) {
 				consoleRunSaved(list[n-1].Name)

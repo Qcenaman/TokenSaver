@@ -5,7 +5,7 @@ import (
 	"os"
 )
 
-const appVersion = "1.2.0"
+const appVersion = "1.3.0"
 
 func main() {
 	initApp()
@@ -27,6 +27,12 @@ func main() {
 		consoleInstall()
 	case "uninstall":
 		consoleUninstall()
+	case "helper":
+		os.Exit(serveElevatedHelper())
+	case "install-helper":
+		consoleInstallHelper()
+	case "uninstall-helper":
+		consoleUninstallHelper()
 	case "version":
 		fmt.Println("tokensaver", appVersion)
 	default:

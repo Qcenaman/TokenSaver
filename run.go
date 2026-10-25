@@ -22,6 +22,8 @@ type runArgs struct {
 	KeepRunning    bool              `json:"keep_running,omitempty"`
 	WaitFor        string            `json:"wait_for,omitempty"`
 	Tail           int               `json:"tail,omitempty"`
+	Elevated       bool              `json:"elevated,omitempty"`
+	Confirmed      bool              `json:"confirmed,omitempty"`
 }
 
 func outputPath(id string) string { return filepath.Join(jobsDir(), id, "output.log") }
@@ -54,29 +56,71 @@ func runCommand(j *Job) error {
 		return err
 	}
 	defer f.Close()
-	cmd, err := buildCommand(a.Shell, a.Command)
-	if err != nil {
-		return err
-	}
-	cmd.Dir = cwd
-	env := append(os.Environ(), "PYTHONUNBUFFERED=1", "PYTHONIOENCODING=utf-8", "PIP_PROGRESS_BAR=off",
-		"PIP_NO_INPUT=1", "UV_NO_PROGRESS=1", "NO_COLOR=1", "GIT_TERMINAL_PROMPT=0", "TERM=dumb")
+	extra := []string{"PYTHONUNBUFFERED=1", "PYTHONIOENCODING=utf-8", "PIP_PROGRESS_BAR=off",
+		"PIP_NO_INPUT=1", "UV_NO_PROGRESS=1", "NO_COLOR=1", "GIT_TERMINAL_PROMPT=0", "TERM=dumb"}
 	for k, v := range a.Env {
-		env = append(env, k+"="+v)
+		extra = append(extra, k+"="+v)
 	}
-	cmd.Env = env
-	cmd.Stdout, cmd.Stderr = f, f
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("couldn't start: %v", err)
+	var (
+		pid      int
+		stop     func()
+		exitCode func() (int, error)
+		done     = make(chan error, 1)
+	)
+	if a.Elevated {
+		ep, err := startElevated(elevRequest{Command: a.Command, Shell: a.Shell, Cwd: cwd, Env: extra, Confirmed: a.Confirmed}, f)
+		if err != nil {
+			return err
+		}
+		pid = ep.pid
+		go func() { <-ep.done; done <- ep.err }()
+		stop = func() {
+			ep.stop() // closing the connection makes the helper end the process tree
+			select {
+			case <-done:
+			case <-time.After(10 * time.Second):
+			}
+		}
+		exitCode = func() (int, error) {
+			if ep.code == nil {
+				if ep.err == nil {
+					ep.err = errors.New("the elevated helper didn't report an exit code")
+				}
+				return 0, ep.err
+			}
+			return *ep.code, nil
+		}
+	} else {
+		cmd, err := buildCommand(a.Shell, a.Command)
+		if err != nil {
+			return err
+		}
+		cmd.Dir = cwd
+		cmd.Env = append(os.Environ(), extra...)
+		cmd.Stdout, cmd.Stderr = f, f
+		if err := cmd.Start(); err != nil {
+			return fmt.Errorf("couldn't start: %v", err)
+		}
+		pid = cmd.Process.Pid
+		go func() { done <- cmd.Wait() }()
+		stop = func() {
+			killTree(pid)
+			select {
+			case <-done:
+			case <-time.After(10 * time.Second):
+			}
+		}
+		exitCode = func() (int, error) { return cmd.ProcessState.ExitCode(), nil }
 	}
-	pid := cmd.Process.Pid
 	j.mu.Lock()
 	j.st.PID = pid
 	j.mu.Unlock()
-	j.setCurrent("pid " + fmt.Sprint(pid))
+	if a.Elevated {
+		j.setCurrent(fmt.Sprintf("pid %d (elevated)", pid))
+	} else {
+		j.setCurrent("pid " + fmt.Sprint(pid))
+	}
 	j.save()
-	done := make(chan error, 1)
-	go func() { done <- cmd.Wait() }()
 	if re != nil {
 		go watchOutput(j, logPath, re, done)
 	}
@@ -88,13 +132,6 @@ func runCommand(j *Job) error {
 	if !a.KeepRunning && mins > 0 {
 		timeout = time.After(time.Duration(mins) * time.Minute)
 	}
-	stop := func() {
-		killTree(pid)
-		select {
-		case <-done:
-		case <-time.After(10 * time.Second):
-		}
-	}
 	select {
 	case <-done:
 	case <-j.ctx.Done():
@@ -104,7 +141,10 @@ func runCommand(j *Job) error {
 		stop()
 		return fmt.Errorf("stopped after %d minutes (timeout_minutes)", mins)
 	}
-	code := cmd.ProcessState.ExitCode()
+	code, err := exitCode()
+	if err != nil {
+		return err
+	}
 	j.mu.Lock()
 	j.st.ExitCode = &code
 	j.mu.Unlock()
