@@ -221,7 +221,11 @@ func consoleInstall() {
 		}
 		if exists(target) {
 			old := target + ".old"
-			os.Remove(old)
+			if exists(old) {
+				keep := filepath.Join(appRoot(), "old", "TokenSaver program")
+				os.MkdirAll(keep, 0o755)
+				os.Rename(old, filepath.Join(keep, "tokensaver.exe.old."+time.Now().Format("20060102150405")))
+			}
 			if err := os.Rename(target, old); err != nil {
 				fmt.Println("Couldn't replace the installed copy (is it in use?):", err)
 				return

@@ -26,6 +26,7 @@ type Config struct {
 	AIScript     string   `json:"ai_script,omitempty"`
 	AIEndpoint   string   `json:"ai_endpoint,omitempty"`
 	AIModel      string   `json:"ai_model,omitempty"`
+	NotifyRepo   string   `json:"notify_repo,omitempty"`
 }
 
 var (

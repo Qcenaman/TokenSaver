@@ -385,8 +385,9 @@ func formatRun(s *JobState) string {
 func toolRun(raw json.RawMessage) (string, error) {
 	var a struct {
 		runArgs
-		Name string `json:"name"`
-		Wait *int   `json:"wait_seconds"`
+		Name   string `json:"name"`
+		Notify bool   `json:"notify"`
+		Wait   *int   `json:"wait_seconds"`
 	}
 	if err := json.Unmarshal(raw, &a); err != nil {
 		return "", fmt.Errorf("bad arguments: %v", err)
@@ -409,5 +410,5 @@ func toolRun(raw json.RawMessage) (string, error) {
 		}
 	}
 	s := j.snapshot()
-	return formatState(&s), nil
+	return withNotify(formatState(&s), &s, a.Notify), nil
 }

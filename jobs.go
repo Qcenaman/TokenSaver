@@ -16,14 +16,15 @@ import (
 )
 
 type JobSpec struct {
-	Name   string     `json:"name,omitempty"`
-	Kind   string     `json:"kind"`
-	Steps  []Step     `json:"steps,omitempty"`
-	DryRun bool       `json:"dry_run,omitempty"`
-	UndoOf string     `json:"undo_of,omitempty"`
-	AI     *AIRequest `json:"ai,omitempty"`
-	Source string     `json:"source,omitempty"`
-	Run    *runArgs   `json:"run,omitempty"`
+	Name   string      `json:"name,omitempty"`
+	Kind   string      `json:"kind"`
+	Steps  []Step      `json:"steps,omitempty"`
+	DryRun bool        `json:"dry_run,omitempty"`
+	UndoOf string      `json:"undo_of,omitempty"`
+	AI     *AIRequest  `json:"ai,omitempty"`
+	Web    *WebRequest `json:"web,omitempty"`
+	Source string      `json:"source,omitempty"`
+	Run    *runArgs    `json:"run,omitempty"`
 }
 
 type StepResult struct {
@@ -315,6 +316,8 @@ func (j *Job) run() {
 		fatal = runUndo(j)
 	case "ai":
 		fatal = runAI(j)
+	case "web":
+		fatal = runWebAsk(j)
 	case "run":
 		fatal = runCommand(j)
 	default:
@@ -576,7 +579,7 @@ func formatState(s *JobState) string {
 	}
 	if s.Status == "running" {
 		b.WriteString("\nStill running; check again with job status id=" + s.ID)
-	} else if !s.DryRun && s.Kind != "ai" && exists(filepath.Join(jobsDir(), s.ID, "log.tsv")) {
+	} else if !s.DryRun && s.Kind != "ai" && s.Kind != "web" && exists(filepath.Join(jobsDir(), s.ID, "log.tsv")) {
 		b.WriteString("\nLog: " + filepath.Join(jobsDir(), s.ID, "log.tsv"))
 	}
 	if s.Status == "interrupted" {

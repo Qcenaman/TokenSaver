@@ -654,19 +654,36 @@ func (f *aiFail) hit(err error) error {
 	return nil
 }
 
+// aiDoc is one thing the local AI reads: a file, or a web page's text.
+type aiDoc struct {
+	label, ref string
+	load       func() (string, error)
+}
+
 func aiAsk(j *Job, c *aiClient, files []string, q string) (string, error) {
+	docs := make([]aiDoc, len(files))
+	for i, f := range files {
+		f := f
+		docs[i] = aiDoc{label: filepath.Base(f), ref: f, load: func() (string, error) { return extractText(f, 400000) }}
+	}
+	return aiAskDocs(j, c, docs, q, "Files", "files", "file")
+}
+
+// aiAskDocs asks each doc (in chunks) for facts that answer q, then combines them.
+// plural/lower/one name the docs in the output ("Files", "files", "file").
+func aiAskDocs(j *Job, c *aiClient, docs []aiDoc, q, plural, lower, one string) (string, error) {
 	if strings.TrimSpace(q) == "" {
 		return "", errors.New("ask needs a question")
 	}
-	type hit struct{ path, text string }
+	type hit struct{ ref, label, text string }
 	var hits []hit
 	var fails aiFail
-	for _, f := range files {
+	for _, d := range docs {
 		if j.ctx.Err() != nil {
 			return "", errCanceled
 		}
-		j.setCurrent(f)
-		text, err := extractText(f, 400000)
+		j.setCurrent(d.ref)
+		text, err := d.load()
 		j.fileDone()
 		if err != nil || strings.TrimSpace(text) == "" {
 			continue
@@ -678,7 +695,7 @@ func aiAsk(j *Job, c *aiClient, files []string, q string) (string, error) {
 		var found []string
 		for ci, ch := range chunks {
 			prompt := fmt.Sprintf("Question: %s\n\nDocument: %s (part %d of %d)\n<<<\n%s\n>>>\n\nIf this text helps answer the question, reply with the relevant facts in at most 3 short sentences. If it does not, reply with exactly NONE.",
-				q, filepath.Base(f), ci+1, len(chunks), ch)
+				q, d.label, ci+1, len(chunks), ch)
 			ans, err := c.chat(aiSystem, prompt, 300)
 			if err != nil {
 				if e := fails.hit(err); e != nil {
@@ -692,31 +709,31 @@ func aiAsk(j *Job, c *aiClient, files []string, q string) (string, error) {
 			}
 		}
 		if len(found) > 0 {
-			hits = append(hits, hit{f, strings.Join(found, " ")})
+			hits = append(hits, hit{d.ref, d.label, strings.Join(found, " ")})
 		}
 	}
 	if len(hits) == 0 {
-		return "No file seemed to answer: " + q, nil
+		return fmt.Sprintf("No %s seemed to answer: %s", one, q), nil
 	}
 	var fb strings.Builder
 	for i, h := range hits {
 		if i >= 40 {
 			break
 		}
-		fmt.Fprintf(&fb, "[%d] %s: %s\n", i+1, filepath.Base(h.path), clip(h.text, 700))
+		fmt.Fprintf(&fb, "[%d] %s: %s\n", i+1, h.label, clip(h.text, 700))
 	}
-	final, err := c.chat(aiSystem, fmt.Sprintf("Question: %s\n\nFindings from files:\n%s\nAnswer the question in at most 6 sentences, citing files like [1]. Say so if the findings conflict or don't fully answer it.", q, fb.String()), 500)
+	final, err := c.chat(aiSystem, fmt.Sprintf("Question: %s\n\nFindings from %s:\n%s\nAnswer the question in at most 6 sentences, citing %s like [1]. Say so if the findings conflict or don't fully answer it.", q, lower, fb.String(), lower), 500)
 	if err != nil {
 		final = "(couldn't combine the findings: " + err.Error() + ")"
 	}
 	var b strings.Builder
-	b.WriteString("Answer: " + final + "\nFiles:")
+	b.WriteString("Answer: " + final + "\n" + plural + ":")
 	for i, h := range hits {
 		if i >= 15 {
-			fmt.Fprintf(&b, "\n+%d more files with findings", len(hits)-15)
+			fmt.Fprintf(&b, "\n+%d more %s with findings", len(hits)-15, lower)
 			break
 		}
-		fmt.Fprintf(&b, "\n[%d] %s — %s", i+1, h.path, clip(h.text, 220))
+		fmt.Fprintf(&b, "\n[%d] %s — %s", i+1, h.ref, clip(h.text, 220))
 	}
 	if fails.n > 0 {
 		fmt.Fprintf(&b, "\nnote: %d read(s) failed", fails.n)

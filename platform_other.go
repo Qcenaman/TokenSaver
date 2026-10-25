@@ -69,3 +69,5 @@ func stopLocalAI(p *aiProc, port int) {
 		syscall.Kill(-p.cmd.Process.Pid, syscall.SIGKILL)
 	}
 }
+
+func quietCmd(name string, args ...string) *exec.Cmd { return exec.Command(name, args...) }
