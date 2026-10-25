@@ -1,3 +1,3 @@
-module github.com/qcenaman/claudessistent
+module github.com/qcenaman/tokensaver
 
 go 1.24

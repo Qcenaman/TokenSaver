@@ -48,7 +48,7 @@ var dlClient = &http.Client{Transport: &http.Transport{
 }}
 
 func prepReq(req *http.Request) {
-	req.Header.Set("User-Agent", "claudessistent/"+appVersion)
+	req.Header.Set("User-Agent", "tokensaver/"+appVersion)
 	h := strings.ToLower(req.URL.Hostname())
 	if strings.HasSuffix(h, "huggingface.co") || h == "hf.co" {
 		if t := os.Getenv("HF_TOKEN"); t != "" {

@@ -45,18 +45,18 @@ func waitEnter(msg string, timeout time.Duration) {
 }
 
 func installPath() string {
-	return filepath.Join(os.Getenv("LOCALAPPDATA"), "Programs", "Claudessistent", "claudessistent.exe")
+	return filepath.Join(os.Getenv("LOCALAPPDATA"), "Programs", "TokenSaver", "tokensaver.exe")
 }
 
 func consoleMenu() {
 	if !isWin {
-		fmt.Println("usage: claudessistent mcp | run <saved job> | version")
+		fmt.Println("usage: tokensaver mcp | run <saved job> | version")
 		return
 	}
 	exe, _ := os.Executable()
 	if !samePath(exe, installPath()) {
-		fmt.Printf("Claudessistent %s\n\n", appVersion)
-		fmt.Println("This installs Claudessistent for your Windows account and connects it to the")
+		fmt.Printf("TokenSaver %s\n\n", appVersion)
+		fmt.Println("This installs TokenSaver for your Windows account and connects it to the")
 		fmt.Println("Claude desktop app, so Claude can hand it file jobs instead of doing every step itself.")
 		fmt.Println()
 		if askYes("Install now? [Y/n] ", true) {
@@ -66,7 +66,7 @@ func consoleMenu() {
 		return
 	}
 	for {
-		fmt.Printf("\nClaudessistent %s\n", appVersion)
+		fmt.Printf("\nTokenSaver %s\n", appVersion)
 		list := listSaved()
 		if len(list) == 0 {
 			fmt.Println("No saved jobs yet. Ask Claude to save one.")
@@ -100,7 +100,7 @@ func consoleRunSaved(name string) int {
 		waitEnter("Press Enter to close.", 0)
 		return 1
 	}
-	fmt.Printf("Claudessistent — %s\n%s\n\n", sj.Name, describeSteps(sj.Steps))
+	fmt.Printf("TokenSaver — %s\n%s\n\n", sj.Name, describeSteps(sj.Steps))
 	if hasRisky(sj.Steps) {
 		fmt.Println("This job deletes, renames or replaces files. Checking what it would do…")
 		s := runConsoleJob(JobSpec{Name: sj.Name, Kind: "files", Steps: sj.Steps, DryRun: true, Source: "you"})
@@ -241,7 +241,8 @@ func consoleInstall() {
 	}
 	for _, p := range todo {
 		err := editClaudeConfig(p, func(s map[string]any) {
-			s["claudessistent"] = map[string]any{"command": target, "args": []string{"mcp"}}
+			delete(s, "claudessistent")
+			s["tokensaver"] = map[string]any{"command": target, "args": []string{"mcp"}}
 		})
 		if err != nil {
 			fmt.Println("Couldn't update", p+":", err)
@@ -251,12 +252,13 @@ func consoleInstall() {
 		connected++
 	}
 	if connected == 0 {
-		fmt.Printf("\nAdd this to the \"mcpServers\" section of Claude's claude_desktop_config.json by hand:\n  \"claudessistent\": {\"command\": %q, \"args\": [\"mcp\"]}\n", target)
+		fmt.Printf("\nAdd this to the \"mcpServers\" section of Claude's claude_desktop_config.json by hand:\n  \"tokensaver\": {\"command\": %q, \"args\": [\"mcp\"]}\n", target)
 	}
+	migrateOldInstall()
 	os.MkdirAll(jobsFolder(), 0o755)
-	os.WriteFile(filepath.Join(jobsFolder(), "Open Claudessistent.cmd"), []byte("@\""+target+"\"\r\n"), 0o644)
+	os.WriteFile(filepath.Join(jobsFolder(), "Open TokenSaver.cmd"), []byte("@\""+target+"\"\r\n"), 0o644)
 	fmt.Println("\nAll set. Open Claude (if it's open, quit it from the tray icon and reopen it) so it loads this version.")
-	fmt.Println("Saved jobs will appear in the \"Claudessistent Jobs\" folder on your Desktop.")
+	fmt.Println("Saved jobs will appear in the \"TokenSaver Jobs\" folder on your Desktop.")
 }
 
 func consoleUninstall() {
@@ -264,7 +266,7 @@ func consoleUninstall() {
 		if !exists(p) {
 			continue
 		}
-		if err := editClaudeConfig(p, func(s map[string]any) { delete(s, "claudessistent") }); err != nil {
+		if err := editClaudeConfig(p, func(s map[string]any) { delete(s, "tokensaver"); delete(s, "claudessistent") }); err != nil {
 			fmt.Println(err)
 			continue
 		}
@@ -304,6 +306,28 @@ func configHasEntry(path, target string) bool {
 	if json.Unmarshal(b, &m) != nil {
 		return false
 	}
-	e, ok := m.MCPServers["claudessistent"]
+	if _, old := m.MCPServers["claudessistent"]; old {
+		return false
+	}
+	e, ok := m.MCPServers["tokensaver"]
 	return ok && samePath(e.Command, target) && len(e.Args) == 1 && e.Args[0] == "mcp"
+}
+
+// migrateOldInstall moves things over from when the app was called Claudessistent.
+func migrateOldInstall() {
+	oldJobs := filepath.Join(desktopDir(), "Claudessistent Jobs")
+	if exists(oldJobs) {
+		if !exists(jobsFolder()) {
+			os.Rename(oldJobs, jobsFolder())
+		}
+		os.Remove(filepath.Join(jobsFolder(), "Open Claudessistent.cmd"))
+		os.Remove(oldJobs)
+	}
+	for _, sj := range listSaved() {
+		writeShortcut(sj.Name)
+	}
+	oldDir := filepath.Join(os.Getenv("LOCALAPPDATA"), "Programs", "Claudessistent")
+	if exists(oldDir) && os.RemoveAll(oldDir) == nil {
+		fmt.Println("Removed the old Claudessistent copy.")
+	}
 }

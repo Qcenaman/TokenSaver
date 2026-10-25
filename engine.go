@@ -19,7 +19,8 @@ import (
 
 const (
 	partSuffix = ".cspart"
-	trashName  = ".claudessistent-trash"
+	trashName  = ".tokensaver-trash"
+	oldTrash   = ".claudessistent-trash"
 )
 
 var errCanceled = errors.New("canceled")
@@ -238,7 +239,7 @@ func collect(j *Job, st *Step, f *filter, o collectOpts) (*collected, error) {
 			}
 			pat := strings.ToLower(filepath.Base(p))
 			for _, e := range ents {
-				if ok, _ := path.Match(pat, strings.ToLower(e.Name())); ok && e.Name() != trashName {
+				if ok, _ := path.Match(pat, strings.ToLower(e.Name())); ok && !isTrash(e.Name()) {
 					matches = append(matches, filepath.Join(parent, e.Name()))
 				}
 			}
@@ -315,7 +316,7 @@ func walkInto(j *Job, root, prefix string, f *filter, o collectOpts, c *collecte
 			return nil
 		}
 		if d.IsDir() {
-			if name == trashName || !f.dirOK(name, rel) {
+			if isTrash(name) || !f.dirOK(name, rel) {
 				return fs.SkipDir
 			}
 			if o.skipBlocked && checkAllowed(p) != nil {
@@ -1200,3 +1201,5 @@ func (j *Job) discardInto(res *StepResult, paths []string, label string) {
 		}
 	}
 }
+
+func isTrash(name string) bool { return name == trashName || name == oldTrash }

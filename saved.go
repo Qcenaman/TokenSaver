@@ -111,7 +111,7 @@ func removeSaved(name string) error {
 	return nil
 }
 
-func jobsFolder() string { return filepath.Join(desktopDir(), "Claudessistent Jobs") }
+func jobsFolder() string { return filepath.Join(desktopDir(), "TokenSaver Jobs") }
 
 func shortcutPath(name string) string { return filepath.Join(jobsFolder(), name+".cmd") }
 

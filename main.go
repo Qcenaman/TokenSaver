@@ -19,7 +19,7 @@ func main() {
 		serveMCP(os.Stdin, os.Stdout)
 	case "run":
 		if len(args) < 2 {
-			fmt.Println(`usage: claudessistent run "<saved job name>"`)
+			fmt.Println(`usage: tokensaver run "<saved job name>"`)
 			os.Exit(2)
 		}
 		os.Exit(consoleRunSaved(args[1]))
@@ -28,7 +28,7 @@ func main() {
 	case "uninstall":
 		consoleUninstall()
 	case "version":
-		fmt.Println("claudessistent", appVersion)
+		fmt.Println("tokensaver", appVersion)
 	default:
 		fmt.Println("unknown command:", args[0])
 		os.Exit(2)

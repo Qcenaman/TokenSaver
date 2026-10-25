@@ -34,13 +34,22 @@ var (
 )
 
 func initApp() {
-	appHome = os.Getenv("CLAUDESSISTENT_HOME")
+	appHome = os.Getenv("TOKENSAVER_HOME")
 	if appHome == "" {
 		if isWin {
-			appHome = filepath.Join(os.Getenv("LOCALAPPDATA"), "Claudessistent")
+			appHome = filepath.Join(os.Getenv("LOCALAPPDATA"), "TokenSaver")
 		} else {
 			h, _ := os.UserHomeDir()
-			appHome = filepath.Join(h, ".claudessistent")
+			appHome = filepath.Join(h, ".tokensaver")
+		}
+	}
+	if os.Getenv("TOKENSAVER_HOME") == "" {
+		old := filepath.Join(filepath.Dir(appHome), "Claudessistent")
+		if !isWin {
+			old = filepath.Join(filepath.Dir(appHome), ".claudessistent")
+		}
+		if !exists(appHome) && exists(old) {
+			os.Rename(old, appHome)
 		}
 	}
 	for _, d := range []string{"jobs", "saved"} {

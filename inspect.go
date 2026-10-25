@@ -87,7 +87,7 @@ func toolScan(raw json.RawMessage) (string, error) {
 			return nil
 		}
 		if d.IsDir() {
-			if name == trashName || !f.dirOK(name, rel) {
+			if isTrash(name) || !f.dirOK(name, rel) {
 				return fs.SkipDir
 			}
 			dirs++
@@ -313,7 +313,7 @@ func toolFind(raw json.RawMessage) (string, error) {
 				continue
 			}
 			if d.IsDir() {
-				if !f.recursive || name == trashName || !f.dirOK(name, rel) || checkReadable(q) != nil {
+				if !f.recursive || isTrash(name) || !f.dirOK(name, rel) || checkReadable(q) != nil {
 					continue
 				}
 				if !a.All && isHeavyDir(name, q) {
