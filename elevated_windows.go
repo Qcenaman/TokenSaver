@@ -257,7 +257,7 @@ func handleElevated(h syscall.Handle) {
 	var cpid uint32
 	procGetNamedPipeClientProcessId.Call(uintptr(h), uintptr(unsafe.Pointer(&cpid)))
 	client := processPath(cpid)
-	if client == "" || !samePath(client, installPath()) {
+	if client == "" || (!samePath(client, installPath()) && !strings.HasSuffix(strings.ToLower(client), `\tokensaver.exe.old`)) {
 		audit("REJECTED connection from pid %d (%s) — only %s may use the helper", cpid, client, installPath())
 		return
 	}
@@ -400,7 +400,22 @@ func startElevated(req elevRequest, out io.Writer) (*elevProc, error) {
 	procGetNamedPipeServerProcessId.Call(uintptr(h), uintptr(unsafe.Pointer(&spid)))
 	if sp := processPath(spid); sp != "" && !samePath(sp, installPath()) && !strings.HasSuffix(strings.ToLower(sp), `\tokensaver.exe.old`) {
 		p.close()
-		return nil, fmt.Errorf("refused: the elevated pipe is served by %s, not TokenSaver", sp)
+		// Self-heal: a stale TokenSaver helper left at an old install path (after the
+		// program was updated or moved) is re-pointed at the current install once, then
+		// we reconnect. A non-TokenSaver process on the pipe is still refused.
+		if !isTokenSaverExe(sp) || !healHelper() {
+			return nil, fmt.Errorf("refused: the elevated pipe is served by %s, not TokenSaver", sp)
+		}
+		if h, err = openElevPipe(); err != nil {
+			return nil, err
+		}
+		p = &pipeConn{h: h}
+		spid = 0
+		procGetNamedPipeServerProcessId.Call(uintptr(h), uintptr(unsafe.Pointer(&spid)))
+		if sp := processPath(spid); sp != "" && !samePath(sp, installPath()) && !strings.HasSuffix(strings.ToLower(sp), `\tokensaver.exe.old`) {
+			p.close()
+			return nil, fmt.Errorf("refused: the elevated pipe is served by %s, not TokenSaver", sp)
+		}
 	}
 	if err := p.send(req); err != nil {
 		p.close()
