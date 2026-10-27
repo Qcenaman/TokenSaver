@@ -438,7 +438,7 @@ func embedHealthy() bool {
 
 // acquire starts the model if needed (on the CPU when cpu is true) and returns a release func.
 // The model stays loaded 3 minutes after the last use, then stops.
-func (s *embedServer) acquire(ctx context.Context, cpu bool, status func(string)) (func(), error) {
+func (s *embedServer) acquire(ctx context.Context, cpu, big bool, status func(string)) (func(), error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.idle != nil {
@@ -452,7 +452,7 @@ func (s *embedServer) acquire(ctx context.Context, cpu bool, status func(string)
 		if s.proc != nil {
 			s.stopLocked()
 		}
-		if err := s.startLocked(ctx, cpu, status); err != nil {
+		if err := s.startLocked(ctx, cpu, big, status); err != nil {
 			return nil, err
 		}
 	}
@@ -480,7 +480,7 @@ func llamaDir() string {
 	return `D:\llama.cpp`
 }
 
-func (s *embedServer) startLocked(ctx context.Context, cpu bool, status func(string)) error {
+func (s *embedServer) startLocked(ctx context.Context, cpu, big bool, status func(string)) error {
 	exe := filepath.Join(llamaDir(), "llama-server.exe")
 	if !isWin {
 		exe = filepath.Join(llamaDir(), "llama-server")
@@ -489,7 +489,7 @@ func (s *embedServer) startLocked(ctx context.Context, cpu bool, status func(str
 		return fmt.Errorf("llama-server not found in %s", llamaDir())
 	}
 	if embedHealthy() { // left over from another TokenSaver window: fine for the CPU, restarted for the GPU
-		if cpu {
+		if cpu || !big {
 			return nil
 		}
 		killProcs(nil, "llama-server.exe", "--port "+strconv.Itoa(ragPort))
@@ -785,7 +785,7 @@ func runRagUpdate(j *Job) error {
 		j.setOutput("Index is up to date.")
 		return nil
 	}
-	release, err := embedSrv.acquire(j.ctx, req.CPU, j.setCurrent)
+	release, err := embedSrv.acquire(j.ctx, req.CPU, true, j.setCurrent)
 	if err != nil {
 		return err
 	}
@@ -1008,7 +1008,7 @@ func ragAutoCPUFor(force, cpu, big bool) (bool, string) {
 }
 
 func queryVector(ctx context.Context, q string, cpu bool) ([]float32, error) {
-	release, err := embedSrv.acquire(ctx, cpu, func(string) {})
+	release, err := embedSrv.acquire(ctx, cpu, false, func(string) {})
 	if err != nil {
 		return nil, err
 	}
@@ -1293,7 +1293,7 @@ func ragRemember(text string, tags []string, force, cpu bool) (string, error) {
 	cpu, _ = ragAutoCPU(force, cpu)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
-	release, err := embedSrv.acquire(ctx, cpu, func(string) {})
+	release, err := embedSrv.acquire(ctx, cpu, false, func(string) {})
 	if err != nil {
 		return "", err
 	}
