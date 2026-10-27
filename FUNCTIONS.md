@@ -1,6 +1,6 @@
 # TokenSaver functions
 
-**Version 1.9.0**
+**Version 1.10.0**
 
 Windows PC helper that Claude hands work to, so the steps run on the PC instead of costing tokens in the chat. Runs as an MCP server in Claude desktop. Everything it keeps is in `D:\Claude Apps\TokenSaver`.
 
@@ -16,12 +16,16 @@ Windows PC helper that Claude hands work to, so the steps run on the PC instead 
 - **run** — runs commands in the background and returns only the useful lines; admin commands without UAC prompts, destructive ones need a yes
 - **system** — PC info (drives, GPU, CUDA, installed tools), processes, ports, kill
 - **web** — search the web and read pages and PDFs on the PC; local AI can answer from pages
+- **browser** — real Chrome with its own TokenSaver profile (sign in once, stays signed in): open, text, find, links, click, fill, press, wait; text only, for JavaScript and signed-in pages
 - **window** — read on-screen text without screenshots: list windows, a window's text (UI Automation, works on Chrome/Electron/Steam), OCR of a window or area, copy-all via clipboard (restored), do: click buttons and fill fields by name, press keys, several steps per call (never in Claude's own windows); long text saved to a file, optional local AI summary
 - **Terminal** (double-click TokenSaver) — record or build macros, pick screen spots and colors, set your own triggers (hotkey, or a color showing/changing in a screen area → click or macro), run saved jobs and any tool; Ctrl+Alt+Esc stops
 
 Also: tells Claude desktop to prefer TokenSaver over its built-in tools, undo for file jobs, job-end signals through GitHub (no polling), protected system folders, console menu for saved jobs and setup.
 
 ## What's new
+
+### 1.10.0
+- **browser** tool (JS and signed-in pages as text)
 
 ### 1.9.0
 - **window** do: click/type by name, multi-step
