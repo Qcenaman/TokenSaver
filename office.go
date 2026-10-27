@@ -216,11 +216,13 @@ func copyFileTo(src, dst string) error {
 
 func officeRead(p string, a officeArgs) (string, error) {
 	ext := strings.ToLower(filepath.Ext(p))
+	shown := ""
 	if _, ok := legacyOffice[ext]; ok {
 		np, err := legacyCopy(p)
 		if err != nil {
 			return "", err
 		}
+		shown = filepath.Base(p)
 		p, ext = np, strings.ToLower(filepath.Ext(np))
 	}
 	maxc := a.MaxChars
@@ -243,6 +245,9 @@ func officeRead(p string, a officeArgs) (string, error) {
 	}
 	if err != nil {
 		return "", err
+	}
+	if shown != "" {
+		s = strings.ReplaceAll(s, filepath.Base(p), shown)
 	}
 	out, _ := capText(s, maxc, filepath.Base(p))
 	return out, nil
@@ -295,14 +300,23 @@ func officeConvert(p string, a officeArgs) (string, error) {
 	if exists(to) && !a.Overwrite {
 		return "", fmt.Errorf("%s already exists; overwrite:true to replace it", to)
 	}
+	note := ""
 	if err := runOfficeConvert(p, to); err != nil {
-		return "", err
+		se := strings.ToLower(filepath.Ext(p))
+		if officeSrcApp[se] != "Excel" || strings.ToLower(filepath.Ext(to)) != ".pdf" {
+			return "", err
+		}
+		// Excel's PDF export needs a printer installed; lay the sheets out ourselves instead.
+		if err2 := sheetsToPDF(p, to); err2 != nil {
+			return "", fmt.Errorf("%v; own layout also failed: %v", err, err2)
+		}
+		note = " (laid out by TokenSaver: Excel needs a printer installed to export PDF)"
 	}
 	fi, err := os.Stat(to)
 	if err != nil {
 		return "", errors.New("Office finished but no file was written")
 	}
-	return fmt.Sprintf("converted to %s (%s)", to, hb(fi.Size())), nil
+	return fmt.Sprintf("converted to %s (%s)%s", to, hb(fi.Size()), note), nil
 }
 
 func runOfficeConvert(src, dst string) error {
@@ -628,4 +642,53 @@ func parseRanges(s string, n int) ([]int, error) {
 		}
 	}
 	return out, nil
+}
+
+// sheetsToPDF lays every sheet out as a table on landscape pages.
+func sheetsToPDF(src, dst string) error {
+	p := src
+	if _, ok := legacyOffice[strings.ToLower(filepath.Ext(src))]; ok {
+		np, err := legacyCopy(src)
+		if err != nil {
+			return err
+		}
+		p = np
+	}
+	t, err := xlsxText(p, "", 20<<20)
+	if err != nil {
+		return err
+	}
+	var md strings.Builder
+	first := true
+	for _, line := range strings.Split(t, "\n") {
+		switch {
+		case strings.HasPrefix(line, "## "):
+			if !first {
+				md.WriteString("\n---\n\n")
+			}
+			first = false
+			name := strings.TrimPrefix(line, "## ")
+			if i := strings.LastIndex(name, " ("); i > 0 {
+				name = name[:i]
+			}
+			md.WriteString("## " + name + "\n\n")
+		case strings.HasPrefix(line, "#\t"):
+		case line == "":
+		default:
+			cells := strings.Split(line, "\t")[1:]
+			for i, c := range cells {
+				if j := strings.Index(c, " (="); j > 0 {
+					c = c[:j]
+				}
+				cells[i] = strings.ReplaceAll(c, "|", "/")
+			}
+			md.WriteString("| " + strings.Join(cells, " | ") + " |\n")
+		}
+	}
+	b, err := pdfCreate(officeArgs{Content: md.String(), Path: dst, Landscape: true})
+	if err != nil {
+		return err
+	}
+	_, err = officeSave(dst, b)
+	return err
 }

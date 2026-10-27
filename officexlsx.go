@@ -226,7 +226,7 @@ type xlSheet struct{ name, part string }
 
 var (
 	wbSheetRe = regexp.MustCompile(`<sheet\b[^>]*>`)
-	relTagRe     = regexp.MustCompile(`<Relationship\b[^>]*>`)
+	relTagRe  = regexp.MustCompile(`<Relationship\b[^>]*>`)
 )
 
 func attrMap(tag string) map[string]string {
@@ -398,7 +398,6 @@ func xlsxText(p, only string, limit int) (string, error) {
 	var out strings.Builder
 	for _, sh := range sheets {
 		x := pkg.get(sh.part)
-		type cell struct{ val string }
 		grid := map[int]map[int]string{}
 		maxC, maxR := 0, 0
 		for _, m := range xCellRe.FindAllStringSubmatch(x, -1) {
