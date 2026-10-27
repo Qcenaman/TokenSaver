@@ -418,8 +418,9 @@ type embedServer struct {
 	proc  *exec.Cmd
 	done  chan struct{}
 	users int
-	idle  *time.Timer
-	cpu   bool
+	idle    *time.Timer
+	cpu     bool
+	adopted bool // reusing a model another TokenSaver process left running
 }
 
 var embedSrv = &embedServer{}
@@ -490,6 +491,7 @@ func (s *embedServer) startLocked(ctx context.Context, cpu, big bool, status fun
 	}
 	if embedHealthy() { // left over from another TokenSaver window: fine for the CPU, restarted for the GPU
 		if cpu || !big {
+			s.adopted = true
 			return nil
 		}
 		killProcs(nil, "llama-server.exe", "--port "+strconv.Itoa(ragPort))
@@ -556,7 +558,18 @@ func lastLines(s string, n int) string {
 	return strings.Join(ls, " | ")
 }
 
+// shutdown stops the model when TokenSaver exits.
+func (s *embedServer) shutdown() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.stopLocked()
+}
+
 func (s *embedServer) stopLocked() {
+	if s.adopted && s.proc == nil {
+		killProcs(nil, "llama-server.exe", "--port "+strconv.Itoa(ragPort))
+	}
+	s.adopted = false
 	if s.proc != nil && s.proc.Process != nil {
 		if isWin {
 			quietCmd("taskkill", "/PID", strconv.Itoa(s.proc.Process.Pid), "/T", "/F").Run()

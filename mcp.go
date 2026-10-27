@@ -53,6 +53,7 @@ func serveMCP(in io.Reader, out io.Writer) {
 	}
 	wg.Wait()
 	waitAllJobs()
+	embedSrv.shutdown()
 }
 
 func handleRPC(req rpcReq) map[string]any {
