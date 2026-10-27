@@ -258,7 +258,7 @@ func openRagIndex() (*ragIndex, error) {
 		return ragLoaded, nil
 	}
 	if ragLoaded != nil {
-				ragLoaded = nil
+		ragLoaded = nil
 	}
 	x, err := readRagIndex()
 	if err != nil {
@@ -271,7 +271,7 @@ func openRagIndex() (*ragIndex, error) {
 			ragMu.Lock()
 			if ragLoaded == nil || time.Since(ragUsed) > 10*time.Minute {
 				if ragLoaded != nil {
-										ragLoaded = nil
+					ragLoaded = nil
 				}
 				ragMu.Unlock()
 				return
@@ -426,7 +426,7 @@ func (w *ragWriter) commit() error {
 	ragMu.Lock()
 	defer ragMu.Unlock()
 	if ragLoaded != nil {
-				ragLoaded = nil
+		ragLoaded = nil
 	}
 	if err := copyFileTo(filepath.Join(ragDir(), "text.bin.new"), filepath.Join(ragDir(), "text.bin.tmp")); err != nil {
 		return err
@@ -463,10 +463,10 @@ func (w *ragWriter) close() {
 // ---------- the embedding model ----------
 
 type embedServer struct {
-	mu    sync.Mutex
-	proc  *exec.Cmd
-	done  chan struct{}
-	users int
+	mu      sync.Mutex
+	proc    *exec.Cmd
+	done    chan struct{}
+	users   int
 	idle    *time.Timer
 	cpu     bool
 	adopted bool // reusing a model another TokenSaver process left running
@@ -552,7 +552,7 @@ func (s *embedServer) startLocked(ctx context.Context, cpu, big bool, status fun
 		ngl = "0"
 	}
 	ctxN, par, ub := "8192", "4", "2048" // ~1 GB of VRAM with the model
-	if cpu { // small buffers: on the CPU it would otherwise hold ~12 GB of RAM
+	if cpu {                             // small buffers: on the CPU it would otherwise hold ~12 GB of RAM
 		ctxN, par, ub = "4096", "2", "2048"
 	}
 	args := []string{"--embedding", "--pooling", "last", "-ngl", ngl, "-c", ctxN, "--parallel", par,

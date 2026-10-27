@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -89,6 +90,14 @@ func aiWouldLoad() bool {
 		host, port := scriptAddr(cfg.AIScript)
 		c := &aiClient{kind: "openai", base: fmt.Sprintf("http://%s:%d", host, port)}
 		return !c.healthy()
+	}
+	// An ai_endpoint llama.cpp server that already answers needs no extra VRAM. (Ollama and
+	// LM Studio list models that aren't loaded, so they keep the check.)
+	if u := strings.TrimRight(cfg.AIEndpoint, "/"); u != "" && !strings.Contains(u, ":11434") && !strings.Contains(u, ":1234") {
+		c := &aiClient{kind: "openai", base: u, hc: &http.Client{Timeout: 2 * time.Second}}
+		if c.healthy() {
+			return false
+		}
 	}
 	return true
 }

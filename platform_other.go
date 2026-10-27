@@ -59,7 +59,9 @@ func startScript(script string) (*aiProc, error) {
 	return p, nil
 }
 
-func stopLocalAI(p *aiProc, port int) {
+func listenerPid(port int) int { return 0 }
+
+func stopLocalAI(p *aiProc, port, ownPid int, ownModel string) {
 	if p.cmd.Process != nil {
 		syscall.Kill(-p.cmd.Process.Pid, syscall.SIGTERM)
 	}

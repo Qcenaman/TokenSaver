@@ -511,19 +511,36 @@ func openAI(j *Job, want string) (*aiClient, func(), error) {
 			return finish(noop)
 		}
 		j.setCurrent("starting the local AI model…")
+		prePid := listenerPid(port) // a server already loading on the port isn't ours
 		p, err := startScript(cfg.AIScript)
 		if err != nil {
 			return nil, noop, fmt.Errorf("couldn't start %s: %v", cfg.AIScript, err)
 		}
-		stop := func() { stopLocalAI(p, port) }
+		// Only the server this job started is ever stopped: if the user (or ContextSaver's
+		// model switching) loaded another model on the port meanwhile, it is left alone.
+		ownPid, ownModel := 0, ""
+		notePid := func() {
+			if ownPid == 0 {
+				if pid := listenerPid(port); pid > 0 && pid != prePid {
+					ownPid = pid
+				}
+			}
+		}
+		stop := func() { stopLocalAI(p, port, ownPid, ownModel) }
 		deadline := time.Now().Add(5 * time.Minute)
 		var exitedAt time.Time
 		for time.Now().Before(deadline) {
 			if j.ctx.Err() != nil {
+				notePid()
 				stop()
 				return nil, noop, errCanceled
 			}
+			notePid()
 			if c.healthy() {
+				notePid()
+				if ms, err := c.models(); err == nil && len(ms) > 0 {
+					ownModel = ms[0]
+				}
 				return finish(stop)
 			}
 			if exitedAt.IsZero() && p.exited() {
@@ -573,6 +590,15 @@ func openAI(j *Job, want string) (*aiClient, func(), error) {
 		return c, noop, nil
 	}
 	return nil, noop, fmt.Errorf("no local AI found (set ai_script in config, or start Ollama / LM Studio): %v", lastErr)
+}
+
+// servedModel: the first model id a server on this port reports ("" if none).
+func servedModel(port int) string {
+	c := &aiClient{kind: "openai", base: fmt.Sprintf("http://127.0.0.1:%d", port), hc: &http.Client{Timeout: 3 * time.Second}}
+	if ms, err := c.models(); err == nil && len(ms) > 0 {
+		return ms[0]
+	}
+	return ""
 }
 
 // ---------- AI jobs ----------

@@ -297,21 +297,32 @@ func quietCmd(name string, args ...string) *exec.Cmd {
 	return c
 }
 
-func stopLocalAI(p *aiProc, port int) {
+// stopLocalAI stops the script this job started and, if the script launched the
+// server separately, that server — only while the port still belongs to it (same pid,
+// same model). A model loaded on the port by someone else is never touched.
+func stopLocalAI(p *aiProc, port, ownPid int, ownModel string) {
 	if p.cmd.Process != nil && !p.exited() {
 		quietCmd("taskkill", "/PID", strconv.Itoa(p.cmd.Process.Pid), "/T", "/F").Run()
 	}
-	// If the script launched the server separately, stop whatever is listening on its port.
+	if ownPid <= 0 {
+		return
+	}
 	for i := 0; i < 5; i++ {
-		if !portAnswers(port) {
+		pid := pidOnPort(port)
+		if pid != ownPid {
 			return
 		}
-		if pid := pidOnPort(port); pid > 0 {
-			quietCmd("taskkill", "/PID", strconv.Itoa(pid), "/T", "/F").Run()
+		if ownModel != "" {
+			if m := servedModel(port); m != "" && m != ownModel {
+				return
+			}
 		}
+		quietCmd("taskkill", "/PID", strconv.Itoa(pid), "/T", "/F").Run()
 		time.Sleep(time.Second)
 	}
 }
+
+func listenerPid(port int) int { return pidOnPort(port) }
 
 func portAnswers(port int) bool {
 	c := &http.Client{Timeout: 1500 * time.Millisecond}
