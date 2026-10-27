@@ -488,8 +488,12 @@ func (s *embedServer) startLocked(ctx context.Context, cpu bool, status func(str
 	if !exists(exe) {
 		return fmt.Errorf("llama-server not found in %s", llamaDir())
 	}
-	if embedHealthy() { // something already answers on the port (left from before): reuse it
-		return nil
+	if embedHealthy() { // left over from another TokenSaver window: fine for the CPU, restarted for the GPU
+		if cpu {
+			return nil
+		}
+		killProcs(nil, "llama-server.exe", "--port "+strconv.Itoa(ragPort))
+		time.Sleep(2 * time.Second)
 	}
 	model := loadRagConfig().Model
 	ngl := "99"
@@ -982,13 +986,19 @@ type ragHit struct {
 // ragAutoCPU: the embedding model goes on the CPU when ComfyUI or training holds
 // the GPU, so nothing clashes and nobody has to be asked. force keeps the GPU.
 func ragAutoCPU(force, cpu bool) (bool, string) {
+	return ragAutoCPUFor(force, cpu, false)
+}
+
+// big: an index update, which always checks the GPU (a model already loaded
+// for searches may be the CPU one).
+func ragAutoCPUFor(force, cpu, big bool) (bool, string) {
 	if force || cpu {
 		return cpu, ""
 	}
 	embedSrv.mu.Lock()
 	running := embedSrv.proc != nil
 	embedSrv.mu.Unlock()
-	if running || embedHealthy() {
+	if !big && (running || embedHealthy()) {
 		return false, ""
 	}
 	if busy := gpuBusy(); busy != "" {
@@ -1432,7 +1442,7 @@ func toolRag(raw json.RawMessage) (string, error) {
 		cpuNote, busyNote := "", ""
 		if !a.DryRun {
 			var busy string
-			if a.CPU, busy = ragAutoCPU(a.Force, a.CPU); busy != "" {
+			if a.CPU, busy = ragAutoCPUFor(a.Force, a.CPU, true); busy != "" {
 				cpuNote, busyNote = "Indexing on the CPU (slower, no clash) because the GPU is busy: "+busy+"\n", busy
 			}
 		}

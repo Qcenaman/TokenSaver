@@ -65,8 +65,8 @@ func TestRag(t *testing.T) {
 		return out
 	}
 	call(map[string]any{"action": "config", "roots": []string{docs}})
-	call(map[string]any{"action": "update", "dry_run": true, "force": true})
-	out := call(map[string]any{"action": "update", "force": true, "wait_seconds": 30})
+	call(map[string]any{"action": "update", "dry_run": true})
+	out := call(map[string]any{"action": "update", "cpu": true, "wait_seconds": 30})
 	if !strings.Contains(out, "done") {
 		time.Sleep(3 * time.Second)
 	}
@@ -81,7 +81,7 @@ func TestRag(t *testing.T) {
 	}
 	os.WriteFile(filepath.Join(docs, "b.txt"), []byte("Changed: ComfyUI banana nodes."), 0o644)
 	os.Chtimes(filepath.Join(docs, "b.txt"), time.Now().Add(time.Hour), time.Now().Add(time.Hour))
-	call(map[string]any{"action": "update", "force": true, "wait_seconds": 30})
+	call(map[string]any{"action": "update", "cpu": true, "wait_seconds": 30})
 	call(map[string]any{"action": "search", "query": "banana", "scope": "files"})
 	call(map[string]any{"action": "status"})
 	call(map[string]any{"action": "notes"})
