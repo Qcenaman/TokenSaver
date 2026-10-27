@@ -620,6 +620,12 @@ func refreshHelper() {
 	if isElevated() || !taskInstalled() {
 		return
 	}
+	// The task runs the program at a fixed path; when that path is unchanged the new
+	// version is picked up anyway, so there is nothing to refresh and no prompt.
+	if out, err := quietCmd("schtasks", "/Query", "/TN", elevTaskName, "/XML").Output(); err == nil &&
+		strings.Contains(strings.ToLower(decodeTaskXML(out)), strings.ToLower(installPath())) {
+		return
+	}
 	fmt.Println("\nUpdating the elevated helper to this version — Windows will ask once for permission...")
 	if err := elevateSelf("install-helper"); err != nil {
 		fmt.Println("Helper not updated (prompt declined?). Update it later from the menu with h.")
@@ -653,4 +659,16 @@ func moveTree(src, dst string) error {
 		err = fmt.Errorf("robocopy failed")
 	}
 	return err
+}
+
+// decodeTaskXML: schtasks prints the task XML as UTF-16 or the console code page.
+func decodeTaskXML(b []byte) string {
+	if len(b) >= 2 && (b[0] == 0xFF && b[1] == 0xFE || len(b) > 1 && b[1] == 0) {
+		u := make([]uint16, 0, len(b)/2)
+		for i := 0; i+1 < len(b); i += 2 {
+			u = append(u, uint16(b[i])|uint16(b[i+1])<<8)
+		}
+		return string(utf16.Decode(u))
+	}
+	return string(b)
 }
