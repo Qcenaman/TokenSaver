@@ -16,13 +16,21 @@ import (
 
 func hideWindow(c *exec.Cmd) {}
 
+// shBin is the POSIX shell; Android keeps it under /system/bin.
+func shBin() string {
+	if runtime.GOOS == "android" {
+		return "/system/bin/sh"
+	}
+	return "/bin/sh"
+}
+
 func buildCommand(shell, command string) (*exec.Cmd, error) {
 	switch strings.ToLower(shell) {
 	case "", "cmd", "sh":
 	default:
 		return nil, errors.New("only the default shell is available here")
 	}
-	c := exec.Command("/bin/sh", "-c", command)
+	c := exec.Command(shBin(), "-c", command)
 	c.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	return c, nil
 }

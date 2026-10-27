@@ -48,7 +48,7 @@ func (p *aiProc) exited() bool {
 }
 
 func startScript(script string) (*aiProc, error) {
-	cmd := exec.Command("/bin/sh", script)
+	cmd := exec.Command(shBin(), script)
 	cmd.Dir = filepath.Dir(script)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if err := cmd.Start(); err != nil {
