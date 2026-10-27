@@ -31,7 +31,7 @@ func gpuBusy() string {
 		var order []string
 		for _, p := range ps {
 			n, c := strings.ToLower(p.name), strings.ToLower(p.cmd)
-			if strings.Contains(c, "tokensaver") || strings.Contains(n, "tokensaver") || strings.Contains(c, "claudessistent") || strings.Contains(n, "claudessistent") {
+			if strings.Contains(c, "tokensaver") || strings.Contains(n, "tokensaver") {
 				continue
 			}
 			for _, a := range gpuApps {

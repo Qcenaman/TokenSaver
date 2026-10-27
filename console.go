@@ -227,7 +227,6 @@ func consoleInstall() {
 	}
 	for _, p := range todo {
 		err := editClaudeConfig(p, func(s map[string]any) {
-			delete(s, "claudessistent")
 			s["tokensaver"] = map[string]any{"command": target, "args": []string{"mcp"}}
 		})
 		if err != nil {
@@ -253,7 +252,7 @@ func consoleUninstall() {
 		if !exists(p) {
 			continue
 		}
-		if err := editClaudeConfig(p, func(s map[string]any) { delete(s, "tokensaver"); delete(s, "claudessistent") }); err != nil {
+		if err := editClaudeConfig(p, func(s map[string]any) { delete(s, "tokensaver") }); err != nil {
 			fmt.Println(err)
 			continue
 		}
@@ -293,9 +292,6 @@ func configHasEntry(path, target string) bool {
 	if json.Unmarshal(b, &m) != nil {
 		return false
 	}
-	if _, old := m.MCPServers["claudessistent"]; old {
-		return false
-	}
 	e, ok := m.MCPServers["tokensaver"]
 	return ok && samePath(e.Command, target) && len(e.Args) == 1 && e.Args[0] == "mcp"
 }
@@ -311,11 +307,8 @@ func migrateOldInstall() {
 	old := filepath.Join(appRoot(), "old")
 	moves := []struct{ src, dst string }{
 		{filepath.Join(la, "TokenSaver"), appHome},
-		{filepath.Join(la, "Claudessistent"), filepath.Join(old, "Claudessistent data")},
 		{filepath.Join(la, "Programs", "TokenSaver"), filepath.Join(old, "TokenSaver program")},
-		{filepath.Join(la, "Programs", "Claudessistent"), filepath.Join(old, "Claudessistent program")},
 		{filepath.Join(desktopDir(), "TokenSaver Jobs"), filepath.Join(old, "Desktop TokenSaver Jobs")},
-		{filepath.Join(desktopDir(), "Claudessistent Jobs"), filepath.Join(old, "Desktop Claudessistent Jobs")},
 	}
 	for _, m := range moves {
 		if !exists(m.src) || samePath(m.src, m.dst) {

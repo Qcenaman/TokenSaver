@@ -20,7 +20,6 @@ import (
 const (
 	partSuffix = ".cspart"
 	trashName  = ".tokensaver-trash"
-	oldTrash   = ".claudessistent-trash"
 )
 
 var errCanceled = errors.New("canceled")
@@ -1207,4 +1206,4 @@ func (j *Job) discardInto(res *StepResult, paths []string, label string) {
 	}
 }
 
-func isTrash(name string) bool { return name == trashName || name == oldTrash }
+func isTrash(name string) bool { return name == trashName }

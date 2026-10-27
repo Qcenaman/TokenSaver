@@ -272,7 +272,7 @@ func portList(port int) (string, error) {
 var protectedProcs = map[string]bool{
 	"system": true, "idle": true, "registry": true, "smss.exe": true, "csrss.exe": true, "wininit.exe": true,
 	"winlogon.exe": true, "services.exe": true, "lsass.exe": true, "svchost.exe": true, "explorer.exe": true,
-	"dwm.exe": true, "fontdrvhost.exe": true, "sihost.exe": true, "claude.exe": true, "tokensaver.exe": true, "claudessistent.exe": true,
+	"dwm.exe": true, "fontdrvhost.exe": true, "sihost.exe": true, "claude.exe": true, "tokensaver.exe": true,
 	"init": true, "systemd": true,
 }
 
