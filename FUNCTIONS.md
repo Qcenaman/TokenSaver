@@ -23,9 +23,10 @@ Windows PC helper that Claude hands work to, so the steps run on the PC instead 
 - **window** — read on-screen text without screenshots: list windows, a window's text (UI Automation, works on Chrome/Electron/Steam), OCR of a window or area, copy-all via clipboard (restored), do: click buttons and fill fields by name, press keys, several steps per call (never in Claude's own windows); long text saved to a file, optional local AI summary; wait for a window or text to show; changes-only re-reads
 - **Terminal** (double-click TokenSaver) — record or build macros, pick screen spots and colors, set your own triggers (hotkey, or a color showing/changing in a screen area → click or macro), run saved jobs and any tool; Ctrl+Alt+Esc stops
 
-Also: tells Claude desktop to prefer TokenSaver over its built-in tools, undo for file jobs, job-end signals through GitHub (no polling), protected system folders, console menu for saved jobs and setup.
+Also: tells Claude desktop to prefer TokenSaver over its built-in tools, undo for file jobs, job-end signals through GitHub (no polling), protected system folders; the terminal also reconnects Claude desktop and installs or removes the admin helper.
 
 ## What's new
+
 ### 1.14.0
 - **rag** tool: meaning search over files, memory notes
 ### 1.13.0
