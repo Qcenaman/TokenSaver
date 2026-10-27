@@ -21,7 +21,7 @@ type runArgs struct {
 	TimeoutMinutes *int              `json:"timeout_minutes,omitempty"`
 	KeepRunning    bool              `json:"keep_running,omitempty"`
 	WaitFor        string            `json:"wait_for,omitempty"`
-	Tail           int               `json:"tail,omitempty"`
+	Tail           *int              `json:"tail,omitempty"`
 	Elevated       bool              `json:"elevated,omitempty"`
 	Confirmed      bool              `json:"confirmed,omitempty"`
 }
@@ -321,7 +321,7 @@ func summarizeOutput(p string, tailN int) outSummary {
 		}
 		s.errors = append(s.errors, t)
 	}
-	if tailN <= 0 {
+	if tailN < 0 {
 		tailN = 15
 	}
 	tailN = min(tailN, 200)
@@ -360,7 +360,11 @@ func formatRun(s *JobState) string {
 		b.WriteString("\n" + s.FirstStep)
 	}
 	p := outputPath(s.ID)
-	sum := summarizeOutput(p, s.Tail)
+	tailN := 15
+	if s.Tail != nil {
+		tailN = *s.Tail
+	}
+	sum := summarizeOutput(p, tailN)
 	if len(sum.errors) > 0 {
 		fmt.Fprintf(&b, "\nError lines (%d total, latest distinct):", sum.errorCount)
 		for _, e := range sum.errors {

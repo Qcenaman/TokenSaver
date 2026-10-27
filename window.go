@@ -248,6 +248,9 @@ func toolWindow(raw json.RawMessage) (string, error) {
 		Filter   string          `json:"filter"`
 		Steps    json.RawMessage `json:"steps"`
 		Then     string          `json:"then"`
+		Pattern  string          `json:"pattern"`
+		Changes  bool            `json:"changes"`
+		Wait     float64         `json:"wait"`
 	}
 	if err := json.Unmarshal(raw, &a); err != nil {
 		return "", err
@@ -278,6 +281,39 @@ func toolWindow(raw json.RawMessage) (string, error) {
 			b.WriteString(line + "\n")
 		}
 		return strings.TrimRight(b.String(), "\n"), nil
+	}
+	if act == "wait" {
+		secs := a.Wait
+		if secs <= 0 {
+			secs = 30
+		}
+		end := time.Now().Add(time.Duration(min(secs, 50) * float64(time.Second)))
+		for {
+			if w, err := findWindow(a.Window); err == nil {
+				if a.Pattern == "" {
+					return fmt.Sprintf("%s is open: %s", w.exe, w.title), nil
+				}
+				if strings.Contains(strings.ToLower(w.title), strings.ToLower(a.Pattern)) {
+					return fmt.Sprintf("%q is in the title: %s", a.Pattern, w.title), nil
+				}
+				t, _ := uiaText(w)
+				if strings.TrimSpace(t) == "" {
+					t, _ = windowOCR(w)
+				}
+				if i := strings.Index(strings.ToLower(t), strings.ToLower(a.Pattern)); i >= 0 {
+					ls := strings.LastIndex(t[:i], "\n") + 1
+					le := strings.Index(t[i:], "\n")
+					if le < 0 {
+						le = len(t) - i
+					}
+					return fmt.Sprintf("%q showed in %s: %s", a.Pattern, w.exe, clip(t[ls:i+le], 200)), nil
+				}
+			}
+			if time.Now().After(end) {
+				return "", fmt.Errorf("not seen within %gs (call again to keep waiting)", min(secs, 50))
+			}
+			time.Sleep(1500 * time.Millisecond)
+		}
 	}
 	var text, label string
 	if act == "ocr" && a.X != nil && a.Y != nil && a.W > 0 && a.H > 0 {
@@ -346,6 +382,9 @@ func toolWindow(raw json.RawMessage) (string, error) {
 				return label + " (summary by local AI; full text in " + p + ")\n" + s, nil
 			}
 		}
+	}
+	if a.Changes {
+		text = changesSince("window:"+act+":"+label, text)
 	}
 	body, note := capText(text, maxc, label)
 	return label + "\n" + body + note, nil

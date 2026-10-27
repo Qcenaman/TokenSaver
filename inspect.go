@@ -446,6 +446,7 @@ type readArgs struct {
 	Ext      string   `json:"ext"`
 	Pages    string   `json:"pages"`
 	MaxPx    int      `json:"max_px"`
+	Changes  bool     `json:"changes"`
 }
 
 func toolRead(raw json.RawMessage) (string, []toolImage, error) {
@@ -586,6 +587,10 @@ func readText(a readArgs) (string, error) {
 			return "", err
 		}
 		lines = strings.Split(strings.ReplaceAll(t, "\r\n", "\n"), "\n")
+	}
+	if a.Changes {
+		out, _ := capText(changesSince("file:"+p, strings.Join(lines, "\n")), maxc, filepath.Base(p)+" changes")
+		return out, nil
 	}
 	var pageOf []int
 	if ext == ".pdf" && mode == "grep" {

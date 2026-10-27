@@ -8,7 +8,9 @@ import (
 
 func TestCompactRecording(t *testing.T) {
 	ms := func(n int) time.Duration { return time.Duration(n) * time.Millisecond }
-	k := func(vk uint16, down bool, at int) rawInput { return rawInput{kind: "key", vk: vk, down: down, at: ms(at)} }
+	k := func(vk uint16, down bool, at int) rawInput {
+		return rawInput{kind: "key", vk: vk, down: down, at: ms(at)}
+	}
 	m := func(down bool, x, y, at int) rawInput {
 		return rawInput{kind: "mouse", button: "left", down: down, x: x, y: y, at: ms(at)}
 	}

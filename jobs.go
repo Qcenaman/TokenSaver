@@ -177,7 +177,7 @@ type JobState struct {
 	FirstStep  string        `json:"first_step,omitempty"`
 	PID        int           `json:"pid,omitempty"`
 	ExitCode   *int          `json:"exit_code,omitempty"`
-	Tail       int           `json:"tail,omitempty"`
+	Tail       *int          `json:"tail,omitempty"`
 	Matched    bool          `json:"matched,omitempty"`
 }
 
