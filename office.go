@@ -348,10 +348,12 @@ func runOfficeConvert(src, dst string) error {
 	switch appName {
 	case "Word":
 		pre := ""
-		if se == ".pdf" { // skip Word's "will convert your PDF" prompt
-			pre = `$k='HKCU:\Software\Microsoft\Office\16.0\Word\Options';if(Test-Path $k){Set-ItemProperty $k DisableConvertPdfWarning 1 -Type DWord};`
+		if se == ".pdf" {
+			// Word asks "will convert your PDF to an editable document" even when hidden;
+			// a background watcher presses OK on that prompt (the first button).
+			pre = `$wj=Start-Job{Add-Type -AssemblyName UIAutomationClient,UIAutomationTypes;$r=[Windows.Automation.AutomationElement]::RootElement;$bc=New-Object Windows.Automation.PropertyCondition([Windows.Automation.AutomationElement]::ControlTypeProperty,[Windows.Automation.ControlType]::Button);for($i=0;$i -lt 200;$i++){foreach($id in (Get-Process PDFREFLOW -EA 0).Id){$c=New-Object Windows.Automation.PropertyCondition([Windows.Automation.AutomationElement]::ProcessIdProperty,$id);foreach($w in $r.FindAll('Children',$c)){$b=$w.FindFirst('Descendants',$bc);if($b){try{$b.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern).Invoke()}catch{}}}};Start-Sleep -Milliseconds 500}};`
 		}
-		ps = fmt.Sprintf(`%s$a=New-Object -ComObject Word.Application;$a.Visible=$false;$a.DisplayAlerts=0;try{$d=$a.Documents.Open(%s,$false,$true,$false,'ts-none');$d.SaveAs2(%s,%d);$d.Close(0)}finally{$a.Quit()}`, pre, q(src), q(dst), code)
+		ps = fmt.Sprintf(`%s$a=New-Object -ComObject Word.Application;$a.Visible=$false;$a.DisplayAlerts=0;try{$d=$a.Documents.Open(%s,$false,$true,$false,'ts-none');$d.SaveAs2(%s,%d);$d.Close(0)}finally{$a.Quit();if($wj){Stop-Job $wj;Remove-Job $wj -Force}}`, pre, q(src), q(dst), code)
 	case "Excel":
 		save := fmt.Sprintf(`$w.SaveAs(%s,%d)`, q(dst), code)
 		if code < 0 {
