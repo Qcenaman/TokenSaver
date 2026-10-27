@@ -257,7 +257,7 @@ func handleElevated(h syscall.Handle) {
 	var cpid uint32
 	procGetNamedPipeClientProcessId.Call(uintptr(h), uintptr(unsafe.Pointer(&cpid)))
 	client := processPath(cpid)
-	if client == "" || (!samePath(client, installPath()) && !strings.HasSuffix(strings.ToLower(client), `\tokensaver.exe.old`)) {
+	if client == "" || !helperClientOK(client) {
 		audit("REJECTED connection from pid %d (%s) — only %s may use the helper", cpid, client, installPath())
 		return
 	}
@@ -615,9 +615,23 @@ func consoleUninstallHelper() {
 	audit("UNINSTALLED helper task")
 }
 
+// helperClientOK: the installed program, or an older TokenSaver still running after an
+// update (install renames it to tokensaver.exe.old, later moved into the old folder).
+func helperClientOK(client string) bool {
+	if samePath(client, installPath()) {
+		return true
+	}
+	base := strings.ToLower(filepath.Base(client))
+	if !strings.HasPrefix(base, "tokensaver.exe.old") {
+		return false
+	}
+	root := strings.ToLower(filepath.Clean(appRoot())) + `\`
+	return strings.HasPrefix(strings.ToLower(filepath.Clean(client)), root)
+}
+
 // refreshHelper points an installed helper at the newly installed program (one UAC prompt).
 func refreshHelper() {
-	if isElevated() || !taskInstalled() {
+	if !taskInstalled() {
 		return
 	}
 	// The task runs the program at a fixed path; when that path is unchanged, restarting
@@ -631,6 +645,10 @@ func refreshHelper() {
 			time.Sleep(250 * time.Millisecond)
 		}
 		fmt.Println("Elevated helper restarted on this version.")
+		return
+	}
+	if isElevated() {
+		fmt.Println("Run install-helper to point the elevated helper at this version.")
 		return
 	}
 	fmt.Println("\nUpdating the elevated helper to this version — Windows will ask once for permission...")

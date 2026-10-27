@@ -1,6 +1,6 @@
 # TokenSaver functions
 
-**Version 1.15.0**
+**Version 1.15.1**
 
 Windows PC helper that Claude hands work to, so the steps run on the PC instead of costing tokens in the chat. Runs as an MCP server in Claude desktop. Everything it keeps is in `D:\Claude Apps\TokenSaver`.
 
@@ -26,6 +26,9 @@ Windows PC helper that Claude hands work to, so the steps run on the PC instead 
 Also: tells Claude desktop to prefer TokenSaver over its built-in tools, undo for file jobs, job-end signals through GitHub (no polling), protected system folders; the terminal also reconnects Claude desktop and installs or removes the admin helper.
 
 ## What's new
+
+### 1.15.1
+- Admin runs keep working right after an update (no restart needed); installing from an admin command restarts the helper too
 
 ### 1.15.0
 - **window** do: click_text, click_at, move, drag, scroll, hold
