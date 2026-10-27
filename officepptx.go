@@ -177,9 +177,9 @@ func (c *pptCtx) slideXML(s pptSlide, titleLayout bool, W, H int64) (string, err
 	if titleLayout {
 		var sub strings.Builder
 		for _, b := range s.blocks {
-			sub.WriteString("<a:p>" + c.runs(b.spans, 0) + "</a:p>")
+			sub.WriteString(`<a:p><a:pPr marL="0" indent="0" algn="ctr"><a:buNone/></a:pPr>` + c.runs(b.spans, 0) + "</a:p>")
 		}
-		shapes.WriteString(c.textShape(`<p:ph type="ctrTitle"/>`, mx*2, H*2/7, W-mx*4, H*2/7, "<a:p>"+c.runs(s.title, 0)+"</a:p>"))
+		shapes.WriteString(c.textShape(`<p:ph type="ctrTitle"/>`, mx*2, H*2/7, W-mx*4, H*2/7, `<a:p><a:pPr algn="ctr"/>`+c.runs(s.title, 0)+"</a:p>"))
 		if sub.Len() > 0 {
 			shapes.WriteString(c.textShape(`<p:ph type="subTitle" idx="1"/>`, mx*2, H*17/28, W-mx*4, H/5, sub.String()))
 		}

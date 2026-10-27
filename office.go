@@ -347,17 +347,21 @@ func runOfficeConvert(src, dst string) error {
 	var ps string
 	switch appName {
 	case "Word":
-		ps = fmt.Sprintf(`$a=New-Object -ComObject Word.Application;$a.Visible=$false;$a.DisplayAlerts=0;try{$d=$a.Documents.Open(%s,$false,$true,$false);$d.SaveAs2(%s,%d);$d.Close(0)}finally{$a.Quit()}`, q(src), q(dst), code)
+		pre := ""
+		if se == ".pdf" { // skip Word's "will convert your PDF" prompt
+			pre = `$k='HKCU:\Software\Microsoft\Office\16.0\Word\Options';if(Test-Path $k){Set-ItemProperty $k DisableConvertPdfWarning 1 -Type DWord};`
+		}
+		ps = fmt.Sprintf(`%s$a=New-Object -ComObject Word.Application;$a.Visible=$false;$a.DisplayAlerts=0;try{$d=$a.Documents.Open(%s,$false,$true,$false,'ts-none');$d.SaveAs2(%s,%d);$d.Close(0)}finally{$a.Quit()}`, pre, q(src), q(dst), code)
 	case "Excel":
 		save := fmt.Sprintf(`$w.SaveAs(%s,%d)`, q(dst), code)
 		if code < 0 {
 			save = fmt.Sprintf(`$w.ExportAsFixedFormat(0,%s)`, q(dst))
 		}
-		ps = fmt.Sprintf(`$a=New-Object -ComObject Excel.Application;$a.Visible=$false;$a.DisplayAlerts=$false;try{$w=$a.Workbooks.Open(%s,0,$true);%s;$w.Close($false)}finally{$a.Quit()}`, q(src), save)
+		ps = fmt.Sprintf(`$a=New-Object -ComObject Excel.Application;$a.Visible=$false;$a.DisplayAlerts=$false;try{$w=$a.Workbooks.Open(%s,0,$true,[Type]::Missing,'ts-none');%s;$w.Close($false)}finally{$a.Quit()}`, q(src), save)
 	case "PowerPoint":
 		ps = fmt.Sprintf(`$a=New-Object -ComObject PowerPoint.Application;try{$d=$a.Presentations.Open(%s,-1,0,0);$d.SaveAs(%s,%d);$d.Close()}finally{$a.Quit()}`, q(src), q(dst), code)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	cmd := quietCmd(psExe(), "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", ps)
 	done := make(chan struct{})
@@ -378,7 +382,9 @@ func runOfficeConvert(src, dst string) error {
 			msg = msg[:i]
 		}
 		if ctx.Err() != nil {
-			msg = "timed out after 3 minutes"
+			msg = "timed out after 2 minutes (a hidden Office dialog?)"
+			exe := map[string]string{"Word": "WINWORD.EXE", "Excel": "EXCEL.EXE", "PowerPoint": "POWERPNT.EXE"}[appName]
+			killProcs(nil, exe, "-Embedding")
 		}
 		return fmt.Errorf("%s couldn't convert it: %s", appName, clip(msg, 300))
 	}
