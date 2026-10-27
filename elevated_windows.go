@@ -620,10 +620,17 @@ func refreshHelper() {
 	if isElevated() || !taskInstalled() {
 		return
 	}
-	// The task runs the program at a fixed path; when that path is unchanged the new
-	// version is picked up anyway, so there is nothing to refresh and no prompt.
+	// The task runs the program at a fixed path; when that path is unchanged, restarting
+	// the task (allowed without admin) loads the new version: no prompt needed.
 	if out, err := quietCmd("schtasks", "/Query", "/TN", elevTaskName, "/XML").Output(); err == nil &&
 		strings.Contains(strings.ToLower(decodeTaskXML(out)), strings.ToLower(installPath())) {
+		quietCmd("schtasks", "/End", "/TN", elevTaskName).Run()
+		time.Sleep(time.Second)
+		quietCmd("schtasks", "/Run", "/TN", elevTaskName).Run()
+		for i := 0; i < 20 && !pipeUp(); i++ {
+			time.Sleep(250 * time.Millisecond)
+		}
+		fmt.Println("Elevated helper restarted on this version.")
 		return
 	}
 	fmt.Println("\nUpdating the elevated helper to this version — Windows will ask once for permission...")
