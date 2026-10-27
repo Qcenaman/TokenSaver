@@ -496,8 +496,12 @@ func (s *embedServer) startLocked(ctx context.Context, cpu bool, status func(str
 	if cpu {
 		ngl = "0"
 	}
-	args := []string{"--embedding", "--pooling", "last", "-ngl", ngl, "-c", "16384", "--parallel", "8",
-		"-b", "4096", "-ub", "4096", "--host", "127.0.0.1", "--port", strconv.Itoa(ragPort)}
+	ctxN, par, ub := "16384", "8", "4096"
+	if cpu { // small buffers: on the CPU it would otherwise hold ~12 GB of RAM
+		ctxN, par, ub = "4096", "2", "2048"
+	}
+	args := []string{"--embedding", "--pooling", "last", "-ngl", ngl, "-c", ctxN, "--parallel", par,
+		"-b", ub, "-ub", ub, "--host", "127.0.0.1", "--port", strconv.Itoa(ragPort)}
 	if strings.HasSuffix(strings.ToLower(model), ".gguf") {
 		args = append([]string{"-m", model}, args...)
 	} else {
@@ -694,6 +698,7 @@ type ragRequest struct {
 	Paths  []string `json:"paths,omitempty"`
 	DryRun bool     `json:"dry_run,omitempty"`
 	CPU    bool     `json:"cpu,omitempty"`
+	Busy   string   `json:"busy,omitempty"` // set when the CPU was chosen because the GPU is busy
 }
 
 func runRagUpdate(j *Job) error {
@@ -765,6 +770,11 @@ func runRagUpdate(j *Job) error {
 	res.mu.Unlock()
 	if req.DryRun {
 		j.setOutput(ragPlanText(cands, todo, bytesTodo))
+		return nil
+	}
+	if req.Busy != "" && bytesTodo > 100<<20 {
+		// Too big for the CPU (hours or days): the user decides.
+		j.setOutput(fmt.Sprintf("WARNING: NOT started. The GPU is busy (%s) and %s of files is too much for the CPU (it would take very long). Tell the user and let them choose: free the GPU and run update again, GPU anyway (force:true, may slow or disturb that work), CPU anyway (cpu:true, very slow), or a smaller part first (paths).", req.Busy, hb(bytesTodo)))
 		return nil
 	}
 	if len(todo) == 0 && removed == 0 && old != nil {
@@ -1419,14 +1429,14 @@ func toolRag(raw json.RawMessage) (string, error) {
 		}
 		return ragStatus(), nil
 	case "update":
-		cpuNote := ""
+		cpuNote, busyNote := "", ""
 		if !a.DryRun {
 			var busy string
 			if a.CPU, busy = ragAutoCPU(a.Force, a.CPU); busy != "" {
-				cpuNote = "Indexing on the CPU (slower, no clash) because the GPU is busy: " + busy + "\n"
+				cpuNote, busyNote = "Indexing on the CPU (slower, no clash) because the GPU is busy: "+busy+"\n", busy
 			}
 		}
-		j, err := newJob(JobSpec{Name: "rag update", Kind: "rag", DryRun: a.DryRun, Source: "chat", Rag: &ragRequest{Paths: a.Paths, DryRun: a.DryRun, CPU: a.CPU}})
+		j, err := newJob(JobSpec{Name: "rag update", Kind: "rag", DryRun: a.DryRun, Source: "chat", Rag: &ragRequest{Paths: a.Paths, DryRun: a.DryRun, CPU: a.CPU, Busy: busyNote}})
 		if err != nil {
 			return "", err
 		}
