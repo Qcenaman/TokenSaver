@@ -126,17 +126,35 @@ func getPage(raw string, fresh bool) (*webPage, error) {
 	if resp.StatusCode >= 400 {
 		return nil, fmt.Errorf("%s answered %s", u, resp.Status)
 	}
-	b, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+	ct := strings.ToLower(resp.Header.Get("Content-Type"))
+	limit := int64(8 << 20)
+	if strings.Contains(ct, "pdf") || strings.HasSuffix(strings.ToLower(strings.SplitN(u, "?", 2)[0]), ".pdf") {
+		limit = 64 << 20
+	}
+	b, err := io.ReadAll(io.LimitReader(resp.Body, limit))
 	if err != nil {
 		return nil, fmt.Errorf("couldn't read %s: %v", u, cleanNetErr(err))
 	}
 	final := resp.Request.URL.String()
-	ct := strings.ToLower(resp.Header.Get("Content-Type"))
 	p := &webPage{URL: u, Final: final, Fetched: time.Now()}
 	head := strings.ToLower(string(b[:min(len(b), 600)]))
 	switch {
 	case strings.Contains(ct, "pdf") || strings.HasPrefix(head, "%pdf"):
-		return nil, fmt.Errorf("%s is a PDF; PDFs can't be read yet (download it with run_job download instead)", u)
+		d, err := parsePDF(b)
+		if err != nil {
+			return nil, fmt.Errorf("couldn't read the PDF at %s: %v", u, err)
+		}
+		t := readPDFText(d, nil, 16<<20)
+		for i, pg := range t.pages {
+			if len(t.pages) > 1 {
+				p.Lines = append(p.Lines, fmt.Sprintf("[page %d]", i+1))
+			}
+			p.Lines = append(p.Lines, strings.Split(pg, "\n")...)
+		}
+		p.Title = t.title
+		if n := len(t.scanned()); n > 0 {
+			p.Note = fmt.Sprintf("%d scanned page(s) have no text; download the PDF and read it to OCR them", n)
+		}
 	case strings.Contains(ct, "html") || strings.Contains(ct, "xhtml") ||
 		(ct == "" || strings.Contains(ct, "text/plain")) && (strings.Contains(head, "<html") || strings.Contains(head, "<!doctype html")):
 		base, _ := url.Parse(final)
@@ -156,8 +174,8 @@ func getPage(raw string, fresh bool) (*webPage, error) {
 	if p.Title == "" {
 		p.Title = urlName(final)
 	}
-	if len(b) == 8<<20 {
-		p.Note = strings.TrimPrefix(p.Note+"; only the first 8 MB were read", "; ")
+	if int64(len(b)) == limit {
+		p.Note = strings.TrimPrefix(p.Note+fmt.Sprintf("; only the first %d MB were read", limit>>20), "; ")
 	}
 	os.WriteFile(textP, []byte(strings.Join(p.Lines, "\n")), 0o644)
 	mb, _ := json.Marshal(p)
@@ -620,9 +638,6 @@ func pageURLs(req *WebRequest, def int) ([]string, []webResult, string, error) {
 	}
 	var urls []string
 	for _, r := range res {
-		if strings.HasSuffix(strings.ToLower(strings.SplitN(r.URL, "?", 2)[0]), ".pdf") {
-			continue
-		}
 		urls = append(urls, r.URL)
 		if len(urls) >= n {
 			break

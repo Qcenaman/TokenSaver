@@ -3,6 +3,8 @@ package main
 import (
 	"archive/zip"
 	"bytes"
+	"context"
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
 	"encoding/xml"
@@ -31,7 +33,7 @@ var errBinary = errors.New("binary file (not text)")
 
 var docExts = map[string]string{
 	".docx": "docx", ".docm": "docx", ".dotx": "docx", ".pptx": "pptx", ".xlsx": "xlsx", ".xlsm": "xlsx",
-	".odt": "odf", ".ods": "odf", ".odp": "odf",
+	".odt": "odf", ".ods": "odf", ".odp": "odf", ".pdf": "pdf",
 }
 
 var textExts = map[string]bool{}
@@ -46,7 +48,7 @@ func isDocExt(ext string) bool { _, ok := docExts[strings.ToLower(ext)]; return 
 
 func aiSupported(ext string) bool {
 	ext = strings.ToLower(ext)
-	return textExts[ext] || isDocExt(ext)
+	return textExts[ext] || isDocExt(ext) || isImageExt(ext)
 }
 
 func decodeText(b []byte) (string, error) {
@@ -96,9 +98,25 @@ func readTextFile(p string, limit int) (string, error) {
 	return decodeText(b)
 }
 
-func extractText(p string, limit int) (string, error) {
+// textOpts: how long OCR may run for scanned PDF pages and images (0 = only what's
+// cached), which PDF pages to read (nil = all), and a context to stop waiting.
+type textOpts struct {
+	ocrWait time.Duration
+	pages   map[int]bool
+	ctx     context.Context
+	ocrUpTo int // only OCR scanned pages up to this page (0 = all)
+}
+
+func extractText(p string, limit int) (string, error) { return extractTextOpt(p, limit, textOpts{}) }
+
+func extractTextOpt(p string, limit int, o textOpts) (string, error) {
 	ext := strings.ToLower(filepath.Ext(p))
+	if isImageExt(ext) {
+		return imageText(p, o)
+	}
 	switch docExts[ext] {
+	case "pdf":
+		return pdfFileText(p, limit, o)
 	case "docx":
 		return zipText(p, func(n string) bool { return n == "word/document.xml" }, limit)
 	case "pptx":
@@ -107,9 +125,6 @@ func extractText(p string, limit int) (string, error) {
 		return zipText(p, func(n string) bool { return n == "xl/sharedStrings.xml" }, limit)
 	case "odf":
 		return zipText(p, func(n string) bool { return n == "content.xml" }, limit)
-	}
-	if ext == ".pdf" {
-		return "", errors.New("reading PDF text isn't supported yet")
 	}
 	t, err := readTextFile(p, limit)
 	if err != nil {
@@ -222,6 +237,7 @@ type aiClient struct {
 	hc                *http.Client
 	noThink           bool
 	chunk             int
+	vision            bool
 }
 
 var thinkRe = regexp.MustCompile(`(?s)<think>.*?</think>`)
@@ -244,7 +260,23 @@ func isLocalURL(u string) bool {
 }
 
 func (c *aiClient) chat(system, user string, maxTok int) (string, error) {
-	msgs := []map[string]string{{"role": "system", "content": system}, {"role": "user", "content": user}}
+	return c.chatImg(system, user, nil, maxTok)
+}
+
+// chatImg sends a prompt with an optional JPEG for vision models.
+func (c *aiClient) chatImg(system, user string, img []byte, maxTok int) (string, error) {
+	var msgs []map[string]any
+	msgs = append(msgs, map[string]any{"role": "system", "content": system})
+	switch {
+	case img == nil:
+		msgs = append(msgs, map[string]any{"role": "user", "content": user})
+	case c.kind == "ollama":
+		msgs = append(msgs, map[string]any{"role": "user", "content": user, "images": []string{base64.StdEncoding.EncodeToString(img)}})
+	default:
+		msgs = append(msgs, map[string]any{"role": "user", "content": []map[string]any{
+			{"type": "image_url", "image_url": map[string]any{"url": "data:image/jpeg;base64," + base64.StdEncoding.EncodeToString(img)}},
+			{"type": "text", "text": user}}})
+	}
 	var endpoint string
 	var body map[string]any
 	if c.kind == "ollama" {
@@ -268,7 +300,7 @@ func (c *aiClient) chat(system, user string, maxTok int) (string, error) {
 	if resp.StatusCode != 200 {
 		if c.kind == "ollama" && c.noThink && bytes.Contains(bytes.ToLower(rb), []byte("think")) {
 			c.noThink = false
-			return c.chat(system, user, maxTok)
+			return c.chatImg(system, user, img, maxTok)
 		}
 		return "", fmt.Errorf("local AI error %d: %s", resp.StatusCode, clip(string(rb), 200))
 	}
@@ -398,10 +430,14 @@ func (c *aiClient) loadCtx() {
 		Def  struct {
 			NCtx int `json:"n_ctx"`
 		} `json:"default_generation_settings"`
+		Modalities struct {
+			Vision bool `json:"vision"`
+		} `json:"modalities"`
 	}
 	if json.NewDecoder(resp.Body).Decode(&r) != nil {
 		return
 	}
+	c.vision = r.Modalities.Vision
 	n := r.Def.NCtx
 	if n == 0 {
 		n = r.NCtx
@@ -518,6 +554,11 @@ func openAI(j *Job, want string) (*aiClient, func(), error) {
 			continue
 		}
 		c.model = m
+		if c.kind == "ollama" {
+			c.vision = c.ollamaVision()
+		} else {
+			c.loadCtx()
+		}
 		return c, noop, nil
 	}
 	return nil, noop, fmt.Errorf("no local AI found (set ai_script in config, or start Ollama / LM Studio): %v", lastErr)
@@ -537,13 +578,9 @@ func aiGather(j *Job, req *AIRequest) ([]string, []string, error) {
 	}
 	maxFiles = min(maxFiles, 2000)
 	var files, notes []string
-	seen, pdfs, unsupported := 0, 0, 0
+	seen, unsupported := 0, 0
 	add := func(p string, info fs.FileInfo) {
 		ext := strings.ToLower(filepath.Ext(p))
-		if ext == ".pdf" {
-			pdfs++
-			return
-		}
 		if !aiSupported(ext) {
 			unsupported++
 			return
@@ -580,11 +617,8 @@ func aiGather(j *Job, req *AIRequest) ([]string, []string, error) {
 	if seen > len(files) {
 		notes = append(notes, fmt.Sprintf("only the first %d of %d files were read; narrow it with include or raise max_files", len(files), seen))
 	}
-	if pdfs > 0 {
-		notes = append(notes, fmt.Sprintf("skipped %d PDFs (not supported yet)", pdfs))
-	}
 	if unsupported > 0 {
-		notes = append(notes, fmt.Sprintf("skipped %d files that aren't text or Office documents", unsupported))
+		notes = append(notes, fmt.Sprintf("skipped %d files that aren't text, documents or images", unsupported))
 	}
 	return files, notes, nil
 }
@@ -636,6 +670,9 @@ func runAI(j *Job) error {
 		return err
 	}
 	head := fmt.Sprintf("Local AI (%s) read %d file(s).", c.model, len(files))
+	if c.vision {
+		head = fmt.Sprintf("Local AI (%s, sees images) read %d file(s).", c.model, len(files))
+	}
 	for _, n := range notes {
 		head += "\nnote: " + n
 	}
@@ -654,17 +691,66 @@ func (f *aiFail) hit(err error) error {
 	return nil
 }
 
-// aiDoc is one thing the local AI reads: a file, or a web page's text.
+// aiDoc is one thing the local AI reads: a file, or a web page's text. image is set
+// for pictures when the model can see them.
 type aiDoc struct {
 	label, ref string
 	load       func() (string, error)
+	image      func() ([]byte, error)
+}
+
+// aiFileText reads a file for the local AI; scanned pages and images go through OCR.
+func aiFileText(j *Job, f string, limit int) (string, error) {
+	return extractTextOpt(f, limit, textOpts{ocrWait: 20 * time.Minute, ctx: j.ctx})
+}
+
+// aiImage is a picture sized for a local vision model, or nil when the model can't see.
+func aiImage(c *aiClient, f string) []byte {
+	if !c.vision || !isImageExt(filepath.Ext(f)) {
+		return nil
+	}
+	pv, err := imagePreview(f, 1024)
+	if err != nil {
+		return nil
+	}
+	return pv.jpg
+}
+
+func (c *aiClient) ollamaVision() bool {
+	b, _ := json.Marshal(map[string]any{"model": c.model})
+	qc := &http.Client{Timeout: 5 * time.Second}
+	resp, err := qc.Post(c.base+"/api/show", "application/json", bytes.NewReader(b))
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	var r struct {
+		Capabilities []string `json:"capabilities"`
+	}
+	if json.NewDecoder(resp.Body).Decode(&r) != nil {
+		return false
+	}
+	for _, x := range r.Capabilities {
+		if x == "vision" {
+			return true
+		}
+	}
+	return false
 }
 
 func aiAsk(j *Job, c *aiClient, files []string, q string) (string, error) {
 	docs := make([]aiDoc, len(files))
 	for i, f := range files {
 		f := f
-		docs[i] = aiDoc{label: filepath.Base(f), ref: f, load: func() (string, error) { return extractText(f, 400000) }}
+		docs[i] = aiDoc{label: filepath.Base(f), ref: f, load: func() (string, error) { return aiFileText(j, f, 400000) }}
+		if c.vision && isImageExt(filepath.Ext(f)) {
+			docs[i].image = func() ([]byte, error) {
+				if img := aiImage(c, f); img != nil {
+					return img, nil
+				}
+				return nil, errors.New("no image")
+			}
+		}
 	}
 	return aiAskDocs(j, c, docs, q, "Files", "files", "file")
 }
@@ -683,6 +769,23 @@ func aiAskDocs(j *Job, c *aiClient, docs []aiDoc, q, plural, lower, one string) 
 			return "", errCanceled
 		}
 		j.setCurrent(d.ref)
+		if d.image != nil {
+			if img, err := d.image(); err == nil {
+				j.fileDone()
+				ans, err := c.chatImg(aiSystem, fmt.Sprintf("Question: %s\n\nImage: %s\n\nIf this image helps answer the question, reply with the relevant facts in at most 3 short sentences, including any text in it that matters. If it does not, reply with exactly NONE.", q, d.label), img, 300)
+				if err != nil {
+					if e := fails.hit(err); e != nil {
+						return "", e
+					}
+					continue
+				}
+				fails.streak = 0
+				if !isNone(ans) && ans != "" {
+					hits = append(hits, hit{d.ref, d.label, ans})
+				}
+				continue
+			}
+		}
 		text, err := d.load()
 		j.fileDone()
 		if err != nil || strings.TrimSpace(text) == "" {
@@ -753,7 +856,21 @@ func aiSummarize(j *Job, c *aiClient, files []string, detail string) (string, er
 			return "", errCanceled
 		}
 		j.setCurrent(f)
-		text, err := extractText(f, 400000)
+		if img := aiImage(c, f); img != nil {
+			j.fileDone()
+			sum, err := c.chatImg(aiSystem, fmt.Sprintf("Image: %s\n\nDescribe this image in at most %d sentences: what it shows, and any text, names, dates or amounts in it.", filepath.Base(f), n), img, 350)
+			if err != nil {
+				if e := fails.hit(err); e != nil {
+					return b.String(), e
+				}
+				fmt.Fprintf(&b, "• %s — (failed: %v)\n", f, err)
+				continue
+			}
+			fails.streak = 0
+			fmt.Fprintf(&b, "• %s — %s\n", f, strings.ReplaceAll(sum, "\n", " "))
+			continue
+		}
+		text, err := aiFileText(j, f, 400000)
 		j.fileDone()
 		if err != nil || strings.TrimSpace(text) == "" {
 			fmt.Fprintf(&b, "• %s — (no readable text)\n", f)
@@ -806,9 +923,23 @@ func aiClassify(j *Job, c *aiClient, files []string, req *AIRequest) (string, er
 			return "", errCanceled
 		}
 		j.setCurrent(f)
-		text, err := extractText(f, 200000)
-		j.fileDone()
 		cat := "Other"
+		if img := aiImage(c, f); img != nil {
+			j.fileDone()
+			ans, err := c.chatImg(aiSystem, fmt.Sprintf("Categories: %s\n\nImage: %s\n\nWhich one category fits this image best? Reply with only the category name exactly as written above, or Other if none fits.", strings.Join(cats, " | "), filepath.Base(f)), img, 30)
+			if err != nil {
+				if e := fails.hit(err); e != nil {
+					return "", e
+				}
+			} else {
+				fails.streak = 0
+				cat = matchCategory(ans, cats)
+			}
+			groups[cat] = append(groups[cat], f)
+			continue
+		}
+		text, err := aiFileText(j, f, 200000)
+		j.fileDone()
 		if err == nil && strings.TrimSpace(text) != "" {
 			ans, err := c.chat(aiSystem, fmt.Sprintf("Categories: %s\n\nDocument: %s\n<<<\n%s\n>>>\n\nWhich one category fits this document best? Reply with only the category name exactly as written above, or Other if none fits.",
 				strings.Join(cats, " | "), filepath.Base(f), clip(text, min(c.chunk, 8000))), 30)

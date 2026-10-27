@@ -387,7 +387,20 @@ func grepFile(p string, fi fs.FileInfo, match func(string) bool, maxHits int) []
 		if err != nil {
 			return nil
 		}
-		for i, l := range strings.Split(text, "\n") {
+		lines := strings.Split(text, "\n")
+		if strings.EqualFold(filepath.Ext(p), ".pdf") {
+			pages := pageOfLines(lines)
+			for i, l := range lines {
+				if !strings.HasPrefix(l, "[page ") && match(l) {
+					hits = append(hits, fmt.Sprintf("L%d (p%d): %s", i+1, pages[i], clip(strings.TrimSpace(l), 160)))
+					if len(hits) >= maxHits {
+						break
+					}
+				}
+			}
+			return hits
+		}
+		for i, l := range lines {
 			if try(i+1, l) {
 				break
 			}
@@ -431,13 +444,70 @@ type readArgs struct {
 	MaxChars int      `json:"max_chars"`
 	Keys     []string `json:"keys"`
 	Ext      string   `json:"ext"`
+	Pages    string   `json:"pages"`
+	MaxPx    int      `json:"max_px"`
 }
 
-func toolRead(raw json.RawMessage) (string, error) {
+func toolRead(raw json.RawMessage) (string, []toolImage, error) {
 	var a readArgs
 	if err := json.Unmarshal(raw, &a); err != nil {
-		return "", err
+		return "", nil, err
 	}
+	if strings.ToLower(a.Mode) == "image" {
+		return readImage(a)
+	}
+	s, err := readText(a)
+	return s, nil, err
+}
+
+// readImage sends a small copy of a picture or a PDF page for Claude to look at.
+func readImage(a readArgs) (string, []toolImage, error) {
+	p, err := expandPath(a.Path)
+	if err != nil {
+		return "", nil, err
+	}
+	if err := checkReadable(p); err != nil {
+		return "", nil, err
+	}
+	fi, err := os.Stat(p)
+	if err != nil {
+		return "", nil, errors.New(cleanErr(err) + ": " + p)
+	}
+	if fi.IsDir() {
+		return "", nil, errors.New("that's a folder; use scan")
+	}
+	maxPx := a.MaxPx
+	if maxPx <= 0 {
+		maxPx = 800
+	}
+	maxPx = min(max(maxPx, 64), 1568)
+	var pv *preview
+	label := filepath.Base(p)
+	switch ext := strings.ToLower(filepath.Ext(p)); {
+	case ext == ".pdf":
+		pg := 1
+		if set, err := parsePages(a.Pages); err != nil {
+			return "", nil, err
+		} else if len(set) > 0 {
+			pg = 1 << 30
+			for n := range set {
+				pg = min(pg, n)
+			}
+		}
+		pv, err = pdfPagePreview(p, pg, maxPx)
+		label = fmt.Sprintf("page %d of %s", pg, label)
+	case isImageExt(ext):
+		pv, err = imagePreview(p, maxPx)
+	default:
+		return "", nil, errors.New("image mode works on pictures and PDF pages")
+	}
+	if err != nil {
+		return "", nil, err
+	}
+	return fmt.Sprintf("%s: %d×%d, sent as %d×%d", label, pv.ow, pv.oh, pv.w, pv.h), []toolImage{{data: pv.jpg, mime: "image/jpeg"}}, nil
+}
+
+func readText(a readArgs) (string, error) {
 	p, err := expandPath(a.Path)
 	if err != nil {
 		return "", err
@@ -468,6 +538,17 @@ func toolRead(raw json.RawMessage) (string, error) {
 	if mode == "" {
 		mode = "head"
 	}
+	ext := strings.ToLower(filepath.Ext(p))
+	pageSet, err := parsePages(a.Pages)
+	if err != nil {
+		return "", err
+	}
+	if mode == "info" && ext == ".pdf" {
+		return pdfInfoText(p, fi)
+	}
+	if mode == "info" && isImageExt(ext) {
+		return imageInfoText(p, fi), nil
+	}
 	if mode == "info" {
 		s := fileInfoText(p, fi)
 		if fi.Size() <= 50<<20 {
@@ -481,7 +562,7 @@ func toolRead(raw json.RawMessage) (string, error) {
 	}
 	var lines []string
 	offset := 0
-	if mode == "tail" && fi.Size() > 30<<20 && !isDocExt(filepath.Ext(p)) {
+	if mode == "tail" && fi.Size() > 30<<20 && !isDocExt(ext) && !isImageExt(ext) {
 		fh, err := os.Open(p)
 		if err != nil {
 			return "", err
@@ -496,11 +577,19 @@ func toolRead(raw json.RawMessage) (string, error) {
 		lines = strings.Split(t, "\n")[1:]
 		offset = -1
 	} else {
-		t, err := extractText(p, 30<<20)
+		o := textOpts{ocrWait: 40 * time.Second, pages: pageSet}
+		if (mode == "head" || mode == "text") && pageSet == nil {
+			o.ocrUpTo = 5
+		}
+		t, err := extractTextOpt(p, 30<<20, o)
 		if err != nil {
 			return "", err
 		}
 		lines = strings.Split(strings.ReplaceAll(t, "\r\n", "\n"), "\n")
+	}
+	var pageOf []int
+	if ext == ".pdf" && mode == "grep" {
+		pageOf = pageOfLines(lines)
 	}
 	total := len(lines)
 	var b strings.Builder
@@ -508,6 +597,9 @@ func toolRead(raw json.RawMessage) (string, error) {
 		num := "?"
 		if offset == 0 {
 			num = fmt.Sprint(i + 1)
+		}
+		if pageOf != nil {
+			num += fmt.Sprintf(" (p%d)", pageOf[i])
 		}
 		s := num + ": " + clip(lines[i], 500) + "\n"
 		if b.Len()+len(s) > maxc {
