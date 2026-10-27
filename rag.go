@@ -46,6 +46,7 @@ type ragConfig struct {
 	Exclude []string `json:"exclude"` // folder paths or folder names
 	Model   string   `json:"model,omitempty"`
 	Updated string   `json:"updated,omitempty"`
+	Types   []string `json:"types,omitempty"` // only these extensions (empty = all readable types)
 }
 
 func defaultRagRoots() []string {
@@ -118,10 +119,14 @@ type ragExcl struct {
 	names map[string]bool
 	paths []string
 	exts  map[string]bool // from "*.html" entries
+	only  map[string]bool // config types; empty = all
 }
 
 func ragExclusions(c ragConfig) ragExcl {
-	e := ragExcl{names: map[string]bool{}, exts: map[string]bool{}}
+	e := ragExcl{names: map[string]bool{}, exts: map[string]bool{}, only: map[string]bool{}}
+	for _, t := range c.Types {
+		e.only["."+strings.ToLower(strings.TrimLeft(strings.TrimSpace(t), "*."))] = true
+	}
 	for k := range ragSkipNames {
 		e.names[k] = true
 	}
@@ -187,7 +192,8 @@ func ragWalk(ctx context.Context, roots []string, e ragExcl) []ragCand {
 				continue
 			}
 			fi, err := de.Info()
-			if err != nil || !ragWanted(full, fi.Size()) || e.exts[strings.ToLower(filepath.Ext(full))] {
+			if err != nil || !ragWanted(full, fi.Size()) || e.exts[strings.ToLower(filepath.Ext(full))] ||
+				len(e.only) > 0 && !e.only[strings.ToLower(filepath.Ext(full))] {
 				continue
 			}
 			mu.Lock()
@@ -252,8 +258,7 @@ func openRagIndex() (*ragIndex, error) {
 		return ragLoaded, nil
 	}
 	if ragLoaded != nil {
-		ragLoaded.text.Close()
-		ragLoaded = nil
+				ragLoaded = nil
 	}
 	x, err := readRagIndex()
 	if err != nil {
@@ -266,8 +271,7 @@ func openRagIndex() (*ragIndex, error) {
 			ragMu.Lock()
 			if ragLoaded == nil || time.Since(ragUsed) > 10*time.Minute {
 				if ragLoaded != nil {
-					ragLoaded.text.Close()
-					ragLoaded = nil
+										ragLoaded = nil
 				}
 				ragMu.Unlock()
 				return
@@ -302,15 +306,22 @@ func readRagIndex() (*ragIndex, error) {
 	for i := range x.vecs {
 		x.vecs[i] = int8(vb[off+i])
 	}
-	if x.text, err = os.Open(filepath.Join(ragDir(), "text.bin")); err != nil {
-		return nil, err
-	}
 	return x, nil
 }
 
+// chunkText reads one passage. The text file is opened only while it is read
+// (or held by an update), so a running update can always replace it on Windows.
 func (x *ragIndex) chunkText(i int) string {
 	b := make([]byte, x.meta.TextLen[i])
-	x.text.ReadAt(b, x.meta.TextOff[i])
+	f := x.text
+	if f == nil {
+		var err error
+		if f, err = os.Open(filepath.Join(ragDir(), "text.bin")); err != nil {
+			return ""
+		}
+		defer f.Close()
+	}
+	f.ReadAt(b, x.meta.TextOff[i])
 	return string(b)
 }
 
@@ -415,8 +426,7 @@ func (w *ragWriter) commit() error {
 	ragMu.Lock()
 	defer ragMu.Unlock()
 	if ragLoaded != nil {
-		ragLoaded.text.Close()
-		ragLoaded = nil
+				ragLoaded = nil
 	}
 	if err := copyFileTo(filepath.Join(ragDir(), "text.bin.new"), filepath.Join(ragDir(), "text.bin.tmp")); err != nil {
 		return err
@@ -426,11 +436,23 @@ func (w *ragWriter) commit() error {
 		if s == "text.bin" {
 			src = filepath.Join(ragDir(), "text.bin.tmp")
 		}
-		if err := os.Rename(src, filepath.Join(ragDir(), s)); err != nil {
+		if err := renameRetry(src, filepath.Join(ragDir(), s)); err != nil {
 			return err
 		}
 	}
-	return os.Rename(ragMetaPath()+".new", ragMetaPath())
+	return renameRetry(ragMetaPath()+".new", ragMetaPath())
+}
+
+// renameRetry: a search may hold the file for a moment.
+func renameRetry(a, b string) error {
+	var err error
+	for i := 0; i < 50; i++ {
+		if err = os.Rename(a, b); err == nil {
+			return nil
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	return err
 }
 
 func (w *ragWriter) close() {
@@ -783,7 +805,6 @@ func runRagUpdate(j *Job) error {
 	old, _ := readRagIndex()
 	oldBy := map[string]int{}
 	if old != nil {
-		defer old.text.Close()
 		for i, f := range old.meta.Files {
 			oldBy[normCase(f.Path)] = i
 		}
@@ -853,6 +874,7 @@ func runRagUpdate(j *Job) error {
 	defer w.close()
 	// Carry over unchanged files (and, for a partial update, everything outside its folders).
 	if old != nil {
+		old.text, _ = os.Open(filepath.Join(ragDir(), "text.bin"))
 		j.setCurrent("keeping unchanged files…")
 		for _, f := range old.meta.Files {
 			k := normCase(f.Path)
@@ -870,6 +892,10 @@ func runRagUpdate(j *Job) error {
 				w.addChunk(fi, old.meta.Line[ci], old.chunkText(int(ci)), v, old.scale[ci])
 			}
 		}
+	}
+	if old != nil && old.text != nil {
+		old.text.Close() // done with the old passages; the file can be replaced now
+		old.text = nil
 	}
 	j.addTotals(int64(len(todo)), bytesTodo)
 
@@ -1514,6 +1540,7 @@ func toolRag(raw json.RawMessage) (string, error) {
 		Roots   []string `json:"roots"`
 		Exclude []string `json:"exclude"`
 		Include []string `json:"include"`
+		Types   []string `json:"types"`
 		Limit   int      `json:"limit"`
 		DryRun  bool     `json:"dry_run"`
 		Notify  bool     `json:"notify"`
@@ -1538,6 +1565,9 @@ func toolRag(raw json.RawMessage) (string, error) {
 		c := loadRagConfig()
 		if len(a.Roots) > 0 {
 			c.Roots = a.Roots
+		}
+		if a.Types != nil {
+			c.Types = a.Types
 		}
 		for _, e := range a.Exclude {
 			if !containsFold(c.Exclude, e) {
@@ -1583,6 +1613,9 @@ func ragStatus() string {
 	fmt.Fprintf(&b, "Folders: %s\n", strings.Join(c.Roots, ", "))
 	if len(c.Exclude) > 0 {
 		fmt.Fprintf(&b, "Also excluded: %s\n", strings.Join(c.Exclude, ", "))
+	}
+	if len(c.Types) > 0 {
+		fmt.Fprintf(&b, "Only types: %s\n", strings.Join(c.Types, " "))
 	}
 	fmt.Fprintf(&b, "Model: %s\n", c.Model)
 	if f, err := os.Open(ragMetaPath()); err == nil {
