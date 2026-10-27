@@ -78,6 +78,7 @@ func focusWindow(w winInfo) error {
 	procSetForegroundWindow.Call(w.hwnd)
 	for i := 0; i < 20; i++ {
 		if foregroundHwnd() == w.hwnd {
+			time.Sleep(150 * time.Millisecond)
 			return nil
 		}
 		time.Sleep(25 * time.Millisecond)
@@ -209,4 +210,19 @@ func copyWindowText(w winInfo) (string, error) {
 		return "", errors.New("nothing was copied (the window may not allow selecting its text)")
 	}
 	return got, nil
+}
+
+// pasteText puts text in through the clipboard (fast and exact), then restores the clipboard text.
+func pasteText(s string) error {
+	prev, had := clipText()
+	if err := setClipText(s); err != nil {
+		return err
+	}
+	time.Sleep(30 * time.Millisecond)
+	pressCombo("ctrl+v")
+	time.Sleep(150 * time.Millisecond)
+	if had {
+		setClipText(prev)
+	}
+	return nil
 }

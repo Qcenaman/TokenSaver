@@ -102,8 +102,7 @@ func uiaDo(w winInfo, op, name, value string) (string, error) {
 			if op == "set" {
 				time.Sleep(80 * time.Millisecond)
 				pressCombo("ctrl+a")
-				typeText(value)
-				return "typed", nil
+				return "typed", pasteText(value)
 			}
 			return "clicked", nil
 		}
@@ -135,7 +134,7 @@ func windowDo(w winInfo, raw json.RawMessage) (string, error) {
 			r = s.Into + ": " + r
 		case s.Type != "":
 			if err = focusWindow(w); err == nil {
-				typeText(s.Type)
+				err = pasteText(s.Type)
 				r = "typed"
 			}
 		case s.Press != "":

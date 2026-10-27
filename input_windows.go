@@ -132,15 +132,9 @@ func sendKey(vk uint16, up bool) {
 // typeText types text as Unicode characters, whatever the keyboard layout.
 func typeText(s string) {
 	for _, u := range utf16Units(s) {
-		for _, up := range []bool{false, true} {
-			flags := uint32(0x4)
-			if up {
-				flags |= 0x2
-			}
-			in := inputKey{typ: 1, ki: keybdInput{wScan: u, dwFlags: flags}}
-			procSendInput.Call(1, uintptr(unsafe.Pointer(&in)), unsafe.Sizeof(in))
-		}
-		time.Sleep(4 * time.Millisecond)
+		in := [2]inputKey{{typ: 1, ki: keybdInput{wScan: u, dwFlags: 0x4}}, {typ: 1, ki: keybdInput{wScan: u, dwFlags: 0x6}}}
+		procSendInput.Call(2, uintptr(unsafe.Pointer(&in[0])), unsafe.Sizeof(in[0]))
+		time.Sleep(12 * time.Millisecond)
 	}
 }
 

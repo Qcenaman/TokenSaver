@@ -7,3 +7,5 @@ func foregroundHwnd() uintptr                  { return 0 }
 func captureWindow(w winInfo) ([]byte, error)  { return nil, errNoInput }
 func copyWindowText(w winInfo) (string, error) { return "", errNoInput }
 func focusWindow(w winInfo) error              { return errNoInput }
+
+func pasteText(s string) error { return errNoInput }
