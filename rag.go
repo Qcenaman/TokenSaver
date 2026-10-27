@@ -117,10 +117,11 @@ func ragWanted(p string, size int64) bool {
 type ragExcl struct {
 	names map[string]bool
 	paths []string
+	exts  map[string]bool // from "*.html" entries
 }
 
 func ragExclusions(c ragConfig) ragExcl {
-	e := ragExcl{names: map[string]bool{}}
+	e := ragExcl{names: map[string]bool{}, exts: map[string]bool{}}
 	for k := range ragSkipNames {
 		e.names[k] = true
 	}
@@ -132,6 +133,10 @@ func ragExclusions(c ragConfig) ragExcl {
 	for _, x := range c.Exclude {
 		x = strings.TrimSpace(x)
 		if x == "" {
+			continue
+		}
+		if strings.HasPrefix(x, "*.") {
+			e.exts[strings.ToLower(x[1:])] = true
 			continue
 		}
 		if strings.ContainsAny(x, `\/:`) {
@@ -182,7 +187,7 @@ func ragWalk(ctx context.Context, roots []string, e ragExcl) []ragCand {
 				continue
 			}
 			fi, err := de.Info()
-			if err != nil || !ragWanted(full, fi.Size()) {
+			if err != nil || !ragWanted(full, fi.Size()) || e.exts[strings.ToLower(filepath.Ext(full))] {
 				continue
 			}
 			mu.Lock()
@@ -524,7 +529,7 @@ func (s *embedServer) startLocked(ctx context.Context, cpu, big bool, status fun
 	if cpu {
 		ngl = "0"
 	}
-	ctxN, par, ub := "16384", "8", "4096"
+	ctxN, par, ub := "8192", "4", "2048" // ~1 GB of VRAM with the model
 	if cpu { // small buffers: on the CPU it would otherwise hold ~12 GB of RAM
 		ctxN, par, ub = "4096", "2", "2048"
 	}
@@ -578,6 +583,21 @@ func lastLines(s string, n int) string {
 		ls = ls[len(ls)-n:]
 	}
 	return strings.Join(ls, " | ")
+}
+
+// restart starts the model again after it stopped in the middle of an update.
+// On the GPU when there is room; if the GPU is no longer usable, the update stops
+// with its progress kept rather than crawling on on the CPU.
+func (s *embedServer) restart(ctx context.Context, cpu bool, status func(string)) error {
+	if !cpu {
+		if blocked, why := ragGPUBlocked(); blocked {
+			return fmt.Errorf("the embedding model stopped and the GPU can't take it back now (%s); progress so far is kept, run update again when the GPU is free (or cpu:true)", why)
+		}
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.stopLocked()
+	return s.startLocked(ctx, cpu, true, status)
 }
 
 // shutdown stops the model when TokenSaver exits.
@@ -913,7 +933,7 @@ func runRagUpdate(j *Job) error {
 		var vecs [][]int8
 		var scales []float32
 		var err error
-		for try := 0; try < 3; try++ {
+		for try := 0; try < 4; try++ {
 			if vecs, scales, err = embed(j.ctx, texts); err == nil {
 				break
 			}
@@ -921,6 +941,11 @@ func runRagUpdate(j *Job) error {
 				return errCanceled
 			}
 			time.Sleep(2 * time.Second)
+			if !embedHealthy() { // the model stopped (e.g. another model took the VRAM): start it again
+				if rerr := embedSrv.restart(j.ctx, req.CPU, j.setCurrent); rerr != nil {
+					return rerr
+				}
+			}
 		}
 		if err != nil {
 			return err
@@ -1061,13 +1086,42 @@ func ragAutoCPUFor(force, cpu, big bool) (bool, string) {
 		return cpu, ""
 	}
 	embedSrv.mu.Lock()
+	onGPU := embedSrv.proc != nil && !embedSrv.cpu
 	running := embedSrv.proc != nil
 	embedSrv.mu.Unlock()
 	if !big && (running || embedHealthy()) {
 		return false, ""
 	}
-	if busy := gpuBusy(); busy != "" {
-		return true, busy
+	if onGPU {
+		return false, ""
+	}
+	return ragGPUBlocked()
+}
+
+// ragGPUBlocked: the embedding model (~1 GB) stays off the GPU while ComfyUI or
+// LoRA training runs (their VRAM use jumps around), or when too little VRAM is free.
+// A loaded LLM is fine as long as there is room next to it.
+func ragGPUBlocked() (bool, string) {
+	if ps, err := procs(); err == nil {
+		for _, p := range ps {
+			n, c := strings.ToLower(p.name), strings.ToLower(p.cmd)
+			if strings.Contains(c, "tokensaver") || strings.Contains(c, "comfy-mcp") {
+				continue
+			}
+			for _, a := range gpuApps {
+				if a.match(n, c) {
+					return true, a.what + " is running"
+				}
+			}
+		}
+	}
+	out, err := runQuiet(15*time.Second, "nvidia-smi", "--query-gpu=memory.free", "--format=csv,noheader,nounits")
+	if err != nil {
+		return false, ""
+	}
+	free, err := strconv.ParseFloat(strings.TrimSpace(strings.Split(strings.TrimSpace(out), "\n")[0]), 64)
+	if err == nil && free < 2048 {
+		return true, fmt.Sprintf("only %.1f GB of VRAM is free", free/1024)
 	}
 	return false, ""
 }
