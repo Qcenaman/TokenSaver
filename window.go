@@ -237,15 +237,17 @@ func capText(s string, maxc int, label string) (string, string) {
 
 func toolWindow(raw json.RawMessage) (string, error) {
 	var a struct {
-		Action   string `json:"action"`
-		Window   string `json:"window"`
-		X        *int   `json:"x"`
-		Y        *int   `json:"y"`
-		W        int    `json:"w"`
-		H        int    `json:"h"`
-		MaxChars int    `json:"max_chars"`
-		Summary  bool   `json:"summary"`
-		Filter   string `json:"filter"`
+		Action   string          `json:"action"`
+		Window   string          `json:"window"`
+		X        *int            `json:"x"`
+		Y        *int            `json:"y"`
+		W        int             `json:"w"`
+		H        int             `json:"h"`
+		MaxChars int             `json:"max_chars"`
+		Summary  bool            `json:"summary"`
+		Filter   string          `json:"filter"`
+		Steps    json.RawMessage `json:"steps"`
+		Then     string          `json:"then"`
 	}
 	if err := json.Unmarshal(raw, &a); err != nil {
 		return "", err
@@ -311,8 +313,24 @@ func toolWindow(raw json.RawMessage) (string, error) {
 			if text, err = copyWindowText(w); err != nil {
 				return "", err
 			}
+		case "do":
+			res, err := windowDo(w, a.Steps)
+			if err != nil {
+				return "", err
+			}
+			if a.Then == "text" {
+				time.Sleep(400 * time.Millisecond)
+				if w2, err := findWindow(strconv.FormatInt(int64(w.hwnd), 10)); err == nil {
+					w = w2
+				}
+				if t, err := uiaText(w); err == nil {
+					t, note := capText(t, maxc, label)
+					return res + "\nwindow now:\n" + t + note, nil
+				}
+			}
+			return res, nil
 		default:
-			return "", errors.New("action must be list, text, ocr or copy")
+			return "", errors.New("action must be list, text, ocr, copy or do")
 		}
 	}
 	if strings.TrimSpace(text) == "" {
