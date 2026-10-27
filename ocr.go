@@ -123,11 +123,11 @@ try {
       $sz = $page.Size
       $lim = 800.0
       if ($MaxPx -gt 0) { $lim = [double]$MaxPx }
-      $opt = New-Object Windows.Data.Pdf.PdfPageRenderOptions
-      if ($sz.Width -ge $sz.Height) { $opt.DestinationWidth = [uint32]$lim } else { $opt.DestinationHeight = [uint32]$lim }
-      $opt.BitmapEncoderId = [Windows.Graphics.Imaging.BitmapEncoder]::JpegEncoderId
+      $ro = New-Object Windows.Data.Pdf.PdfPageRenderOptions
+      if ($sz.Width -ge $sz.Height) { $ro.DestinationWidth = [uint32]$lim } else { $ro.DestinationHeight = [uint32]$lim }
+      $ro.BitmapEncoderId = [Windows.Graphics.Imaging.BitmapEncoder]::JpegEncoderId
       $st = New-Object Windows.Storage.Streams.InMemoryRandomAccessStream
-      AwaitAct ($page.RenderToStreamAsync($st, $opt))
+      AwaitAct ($page.RenderToStreamAsync($st, $ro))
       Say ('P {0} {1} {2}' -f $pn, [int]$sz.Width, [int]$sz.Height)
       Say-Jpeg $st
     }
@@ -143,10 +143,10 @@ try {
         $sz = $page.Size
         if ($sz.Width -gt 0 -and $sz.Height * $want / $sz.Width -gt $script:max) { $want = $script:max * $sz.Width / $sz.Height }
         if ($want -gt $script:max) { $want = $script:max }
-        $opt = New-Object Windows.Data.Pdf.PdfPageRenderOptions
-        $opt.DestinationWidth = [uint32]$want
+        $ro = New-Object Windows.Data.Pdf.PdfPageRenderOptions
+        $ro.DestinationWidth = [uint32]$want
         $st = New-Object Windows.Storage.Streams.InMemoryRandomAccessStream
-        AwaitAct ($page.RenderToStreamAsync($st, $opt))
+        AwaitAct ($page.RenderToStreamAsync($st, $ro))
         $page.Dispose()
         Ocr-Decoder (Await ([Windows.Graphics.Imaging.BitmapDecoder]::CreateAsync($st)) ([Windows.Graphics.Imaging.BitmapDecoder])) $pn
       }

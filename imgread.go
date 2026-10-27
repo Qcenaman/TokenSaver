@@ -216,16 +216,23 @@ func imagePreview(p string, maxPx int) (*preview, error) {
 	if err != nil {
 		return nil, err
 	}
-	return jpegPreview(jpg, pg.W, pg.H)
+	return jpegPreview(jpg, pg.W, pg.H, maxPx)
 }
 
-func jpegPreview(jpg []byte, ow, oh int) (*preview, error) {
+// jpegPreview wraps a JPEG made by Windows, shrinking it when display scaling made it bigger than asked.
+func jpegPreview(jpg []byte, ow, oh, maxPx int) (*preview, error) {
 	cfg, err := jpeg.DecodeConfig(bytes.NewReader(jpg))
 	if err != nil {
 		return nil, errors.New("couldn't make a copy of the image")
 	}
 	if ow == 0 {
 		ow, oh = cfg.Width, cfg.Height
+	}
+	if maxPx > 0 && max(cfg.Width, cfg.Height) > maxPx {
+		if img, err := jpeg.Decode(bytes.NewReader(jpg)); err == nil {
+			small := shrink(flatten(img), maxPx)
+			return &preview{jpg: encodeJPEG(small), ow: ow, oh: oh, w: small.Bounds().Dx(), h: small.Bounds().Dy()}, nil
+		}
 	}
 	return &preview{jpg: jpg, ow: ow, oh: oh, w: cfg.Width, h: cfg.Height}, nil
 }
@@ -245,7 +252,7 @@ func pdfPagePreview(p string, page, maxPx int) (*preview, error) {
 	if len(jpg) == 0 {
 		return nil, fmt.Errorf("the PDF has no page %d", page)
 	}
-	return jpegPreview(jpg, pg.W, pg.H)
+	return jpegPreview(jpg, pg.W, pg.H, maxPx)
 }
 
 func imageInfoText(p string, fi fs.FileInfo) string {
