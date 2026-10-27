@@ -9,7 +9,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -65,38 +64,7 @@ func consoleMenu() {
 		waitEnter("\nPress Enter to close.", 0)
 		return
 	}
-	for {
-		fmt.Printf("\nTokenSaver %s\n", appVersion)
-		list := listSaved()
-		if len(list) == 0 {
-			fmt.Println("No saved jobs yet. Ask Claude to save one.")
-		} else {
-			fmt.Println("Saved jobs:")
-			for i, s := range list {
-				fmt.Printf("  %d. %s — %s\n", i+1, s.Name, clip(describeSteps(s.Steps), 90))
-			}
-		}
-		fmt.Println("\nElevated helper (admin commands without UAC prompts):", helperStatus())
-		fmt.Println("\nType a number to run a job · r = reconnect to Claude · u = disconnect from Claude")
-		fmt.Println("h = install/restart elevated helper · hu = remove elevated helper · Enter = quit")
-		a := strings.ToLower(prompt("> "))
-		switch a {
-		case "":
-			return
-		case "r":
-			consoleInstall()
-		case "u":
-			consoleUninstall()
-		case "h":
-			consoleInstallHelper()
-		case "hu":
-			consoleUninstallHelper()
-		default:
-			if n, err := strconv.Atoi(a); err == nil && n >= 1 && n <= len(list) {
-				consoleRunSaved(list[n-1].Name)
-			}
-		}
-	}
+	terminal()
 }
 
 func consoleRunSaved(name string) int {

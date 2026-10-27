@@ -1,6 +1,6 @@
 # TokenSaver functions
 
-**Version 1.6.0**
+**Version 1.7.0**
 
 Windows PC helper that Claude hands work to, so the steps run on the PC instead of costing tokens in the chat. Runs as an MCP server in Claude desktop. Everything it keeps is in `D:\Claude Apps\TokenSaver`.
 
@@ -16,10 +16,17 @@ Windows PC helper that Claude hands work to, so the steps run on the PC instead 
 - **run** — runs commands in the background and returns only the useful lines; admin commands without UAC prompts, destructive ones need a yes
 - **system** — PC info (drives, GPU, CUDA, installed tools), processes, ports, kill
 - **web** — search the web and read pages and PDFs on the PC; local AI can answer from pages
+- **Terminal** (double-click TokenSaver) — record or build macros, pick screen spots and colors, set your own triggers (hotkey, or a color showing/changing in a screen area → click or macro), run saved jobs and any tool; Ctrl+Alt+Esc stops
 
 Also: tells Claude desktop to prefer TokenSaver over its built-in tools, undo for file jobs, job-end signals through GitHub (no polling), protected system folders, console menu for saved jobs and setup.
 
 ## What's new
+
+### 1.7.0
+- Terminal replaces the menu
+- Macros: record, build, play
+- Triggers: hotkey or screen color → click or macro
+- Ctrl+Alt+Esc stop
 
 ### 1.6.0
 - PDF text in **read**, **find**, **local_ai**, **web** (pages, page numbers in results)

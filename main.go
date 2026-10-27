@@ -5,7 +5,7 @@ import (
 	"os"
 )
 
-const appVersion = "1.6.0"
+const appVersion = "1.7.0"
 
 func main() {
 	initApp()
@@ -35,6 +35,10 @@ func main() {
 		consoleUninstallHelper()
 	case "version":
 		fmt.Println("tokensaver", appVersion)
+	case "terminal":
+		terminal()
+	case "macro":
+		os.Exit(runMacroCLI(args[1:]))
 	default:
 		fmt.Println("unknown command:", args[0])
 		os.Exit(2)
