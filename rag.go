@@ -336,6 +336,9 @@ func (w *ragWriter) addFile(f ragFile) int32 {
 }
 
 func (w *ragWriter) addChunk(fi int32, line int32, text string, vec []int8, scale float32) {
+	if w.meta.Files[fi].N == 0 {
+		w.meta.Files[fi].First = int32(len(w.meta.FileOf))
+	}
 	w.meta.FileOf = append(w.meta.FileOf, fi)
 	w.meta.Line = append(w.meta.Line, line)
 	w.meta.TextOff = append(w.meta.TextOff, w.toff)
@@ -347,6 +350,25 @@ func (w *ragWriter) addChunk(fi int32, line int32, text string, vec []int8, scal
 	}
 	w.scale = append(w.scale, scale)
 	w.meta.Files[fi].N++
+}
+
+// truncate drops files from index nf on (and their passages): files whose
+// passages weren't all embedded when an update stopped.
+func (w *ragWriter) truncate(nf int) {
+	if nf >= len(w.meta.Files) {
+		return
+	}
+	nc := len(w.meta.FileOf)
+	for i := nf; i < len(w.meta.Files); i++ {
+		if w.meta.Files[i].N > 0 {
+			nc = min(nc, int(w.meta.Files[i].First))
+		}
+	}
+	w.meta.Files = w.meta.Files[:nf]
+	w.meta.FileOf, w.meta.Line = w.meta.FileOf[:nc], w.meta.Line[:nc]
+	w.meta.TextOff, w.meta.TextLen = w.meta.TextOff[:nc], w.meta.TextLen[:nc]
+	w.scale = w.scale[:nc]
+	w.vecs.Truncate(nc * w.meta.Dim)
 }
 
 // commit writes everything and replaces the live index.
@@ -910,29 +932,59 @@ func runRagUpdate(j *Job) error {
 		batch = batch[:0]
 		return nil
 	}
-	// Chunks of one file must stay together, so a file's chunks are added in one go.
+	// Passages are embedded in batches of 64 across files; a file counts as
+	// indexed only once all its passages are in.
+	pendFrom := -1 // first file whose passages aren't all embedded yet
 	for d := range docs {
 		if j.ctx.Err() != nil {
 			break
 		}
 		fi := w.addFile(ragFile{Path: d.cd.path, Size: d.cd.size, MTime: d.cd.mtime})
+		if pendFrom < 0 {
+			pendFrom = int(fi)
+		}
 		for _, p := range d.pieces {
 			batch = append(batch, pend{fi, p})
+			if len(batch) >= 64 {
+				if err := flushBatch(); err != nil {
+					w.truncate(pendFrom)
+					w.commit()
+					return err
+				}
+				pendFrom = int(fi) // earlier files are complete
+			}
 		}
-		if err := flushBatch(); err != nil {
-			return err
+		if len(batch) == 0 {
+			pendFrom = -1
 		}
 		j.fileDone()
 		j.addBytes(d.cd.size)
-		j.setCurrent(fmt.Sprintf("%d passages from %s", chunks, filepath.Base(d.cd.path)))
+		j.setCurrent(fmt.Sprintf("%d passages so far; %s", chunks, filepath.Base(d.cd.path)))
 		if time.Since(lastSave) > 10*time.Minute { // checkpoint: an interrupted update keeps its progress
+			if err := flushBatch(); err != nil {
+				w.truncate(pendFrom)
+				w.commit()
+				return err
+			}
+			pendFrom = -1
 			if err := w.commit(); err != nil {
 				return err
 			}
 			lastSave = time.Now()
 		}
 	}
+	if j.ctx.Err() == nil {
+		if err := flushBatch(); err != nil {
+			w.truncate(pendFrom)
+			w.commit()
+			return err
+		}
+		pendFrom = -1
+	}
 	if j.ctx.Err() != nil {
+		if pendFrom >= 0 {
+			w.truncate(pendFrom)
+		}
 		w.commit() // keep what was done
 		return errCanceled
 	}
