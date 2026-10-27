@@ -1,13 +1,13 @@
 # TokenSaver functions
 
-**Version 1.14.0**
+**Version 1.15.0**
 
 Windows PC helper that Claude hands work to, so the steps run on the PC instead of costing tokens in the chat. Runs as an MCP server in Claude desktop. Everything it keeps is in `D:\Claude Apps\TokenSaver`.
 
 ## What it can do
 
 - **scan** — folder overview: file count, size, types, dates, largest files
-- **find** — find files by name, size, date or text inside (text, code, Office, PDF) across many folders
+- **find** — find files by name, size, date or text inside (text, code, Office, PDF) across many folders; shows up to 3 matching lines per file (lines) and how many more
 - **read** — read just part of a file: head, tail, lines, grep, plain text of Office/HTML/PDF, OCR of scans and pictures, chosen PDF pages, a small copy of a picture or PDF page, JSON values; changes-only re-reads
 - **run_job** — background file jobs: copy, move, sync, delete (Recycle Bin only), rename, mkdir, download, extract, edit, write; filters and dry-run
 - **job** — status, list, cancel, undo, notify when a job ends
@@ -20,12 +20,17 @@ Windows PC helper that Claude hands work to, so the steps run on the PC instead 
 - **media** — audio/video as text: info, transcript (local Whisper on the GPU, cached), frames (stills + their OCR text)
 - **office** — Word, Excel, PowerPoint, PDF: create (from Markdown or rows), edit (replace text, add/delete paragraphs or slides, set cells and formulas, add rows and sheets; PDF merge, pick/reorder pages, rotate, stamp page numbers or watermark, split), read (outline, cells with formulas, PDF pages; old .doc/.xls/.ppt too), convert through installed Office (e.g. to PDF); old copy kept on every edit
 - **rag** — search your files by meaning (C: and D:, documents and code; index updated only when asked) and keep memory notes Claude can recall in later chats; uses the CPU by itself while ComfyUI or training holds the GPU
-- **window** — read on-screen text without screenshots: list windows, a window's text (UI Automation, works on Chrome/Electron/Steam), OCR of a window or area, copy-all via clipboard (restored), do: click buttons and fill fields by name, press keys, several steps per call (never in Claude's own windows); long text saved to a file, optional local AI summary; wait for a window or text to show; changes-only re-reads
+- **window** — read on-screen text without screenshots: list windows, a window's text (UI Automation, works on Chrome/Electron/Steam), OCR of a window or area, copy-all via clipboard (restored), do: click buttons and fill fields by name, click on OCR text, click/move/drag at a position, scroll, hold keys, press keys, several steps per call (never in Claude's own windows); OCR with positions; clipboard get/set; small screenshot of a window or area, or a local AI answer about it instead; long text saved to a file, optional local AI summary; wait for a window or text to show; changes-only re-reads
 - **Terminal** (double-click TokenSaver) — record or build macros, pick screen spots and colors, set your own triggers (hotkey, or a color showing/changing in a screen area → click or macro), run saved jobs and any tool; Ctrl+Alt+Esc stops
 
 Also: tells Claude desktop to prefer TokenSaver over its built-in tools, undo for file jobs, job-end signals through GitHub (no polling), protected system folders; the terminal also reconnects Claude desktop and installs or removes the admin helper.
 
 ## What's new
+
+### 1.15.0
+- **window** do: click_text, click_at, move, drag, scroll, hold
+- **window** ocr boxes:true (positions), clipboard get/set, screenshot (or question for local AI)
+- **find**: count of hidden matching lines; lines option
 
 ### 1.14.0
 - **rag** tool: meaning search over files, memory notes
