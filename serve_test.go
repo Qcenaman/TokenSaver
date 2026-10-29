@@ -65,6 +65,28 @@ func TestLinkHandler(t *testing.T) {
 	if pc := loadPhoneCfg(); pc.LanIP != "192.168.1.50" || pc.TSIP != "100.1.2.3" || pc.AdbSerial != "192.168.1.50:4242" {
 		t.Fatalf("report not stored: %+v", pc)
 	}
+	// AdbPort (service.adb.tls.port) replaces the stale ip:port with the live Wireless-debugging port.
+	if code, _ := post("/phone/report", "secret", `{"LanIP":"192.168.1.50","AdbPort":33469}`); code != 200 {
+		t.Fatalf("report with AdbPort: %d", code)
+	}
+	if pc := loadPhoneCfg(); pc.AdbSerial != "192.168.1.50:33469" || pc.LastReport.IsZero() {
+		t.Fatalf("AdbPort not applied: %+v", pc)
+	}
+	if code, _ := post("/phone/report", "secret", `{"AdbPort":"44555"}`); code != 200 {
+		t.Fatalf("report with string AdbPort: %d", code)
+	}
+	if pc := loadPhoneCfg(); pc.AdbSerial != "192.168.1.50:44555" {
+		t.Fatalf("string AdbPort not applied: %+v", pc)
+	}
+	// loadPhoneCfg must reflect phone.json as it is on disk, not a copy from process start.
+	fresh := loadPhoneCfg()
+	fresh.AdbSerial = "10.0.0.9:1234"
+	if err := writeJSONAtomic(phoneCfgPath(), fresh); err != nil {
+		t.Fatal(err)
+	}
+	if pc := loadPhoneCfg(); pc.AdbSerial != "10.0.0.9:1234" {
+		t.Fatalf("loadPhoneCfg served a stale copy: %+v", pc)
+	}
 	resp, _ := http.Get(srv.URL + "/health")
 	if resp.StatusCode != 200 {
 		t.Fatal("health")

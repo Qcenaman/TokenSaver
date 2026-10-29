@@ -45,22 +45,25 @@ var (
 
 func phoneCfgPath() string { return filepath.Join(appHome, "phone.json") }
 
+// loadPhoneCfg re-reads phone.json on every call: serve updates it with each phone report, and the
+// MCP server is a separate process, so a copy loaded at start goes stale (last_report, adb_serial).
 func loadPhoneCfg() phoneConfig {
 	phoneMu.Lock()
 	defer phoneMu.Unlock()
-	if !phoneLoaded {
-		if b, err := os.ReadFile(phoneCfgPath()); err == nil {
-			json.Unmarshal(b, &phoneCfg)
-		}
-		if phoneCfg.Port == 0 {
-			phoneCfg.Port = 8765
-		}
-		if phoneCfg.Package == "" {
-			phoneCfg.Package = "com.qcenaman.adbsaver"
-		}
-		phoneLoaded = true
+	var c phoneConfig
+	if b, err := os.ReadFile(phoneCfgPath()); err == nil {
+		json.Unmarshal(b, &c)
+	} else if phoneLoaded {
+		c = phoneCfg
 	}
-	return phoneCfg
+	if c.Port == 0 {
+		c.Port = 8765
+	}
+	if c.Package == "" {
+		c.Package = "com.qcenaman.adbsaver"
+	}
+	phoneCfg, phoneLoaded = c, true
+	return c
 }
 
 func savePhoneCfg(c phoneConfig) error {
@@ -201,22 +204,28 @@ func adbSerial(c phoneConfig) (string, error) {
 	if any != "" {
 		return any, nil
 	}
-	// Try to connect: mdns first, then last known address.
+	// Try to connect: the address the phone last reported (its live Wireless-debugging port) first,
+	// then mDNS, whose list keeps stale _adb-tls-connect entries from earlier sessions.
+	tried := map[string]bool{}
+	connect := func(addr string) bool {
+		if addr == "" || tried[addr] {
+			return false
+		}
+		tried[addr] = true
+		o, _ := runQuiet(10*time.Second, adbExe(), "connect", addr)
+		return strings.Contains(o, "connected") && !strings.Contains(o, "cannot") && !strings.Contains(o, "failed")
+	}
+	if connect(c.AdbSerial) {
+		return c.AdbSerial, nil
+	}
 	if out, _ := runQuiet(6*time.Second, adbExe(), "mdns", "services"); out != "" {
 		for _, line := range strings.Split(out, "\n") {
 			if strings.Contains(line, "_adb-tls-connect") {
 				f := strings.Fields(line)
-				if len(f) >= 3 {
-					if o, _ := runQuiet(10*time.Second, adbExe(), "connect", f[len(f)-1]); strings.Contains(o, "connected") {
-						return f[len(f)-1], nil
-					}
+				if len(f) >= 3 && connect(f[len(f)-1]) {
+					return f[len(f)-1], nil
 				}
 			}
-		}
-	}
-	if c.AdbSerial != "" {
-		if o, _ := runQuiet(10*time.Second, adbExe(), "connect", c.AdbSerial); strings.Contains(o, "connected") {
-			return c.AdbSerial, nil
 		}
 	}
 	return "", errors.New("no phone reachable over adb (not on the LAN, or wireless debugging off)")

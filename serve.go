@@ -116,6 +116,7 @@ func linkHandler(c linkConfig) http.Handler {
 		}
 		var rep struct {
 			LanIP, TailscaleIP, AdbSerial, Battery, Network string
+			AdbPort                                         json.RawMessage // service.adb.tls.port: the live Wireless-debugging port
 		}
 		body, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))
 		json.Unmarshal(body, &rep)
@@ -128,6 +129,9 @@ func linkHandler(c linkConfig) http.Handler {
 		}
 		if rep.AdbSerial != "" {
 			pc.AdbSerial = rep.AdbSerial
+		}
+		if port := strings.Trim(string(rep.AdbPort), `"`); port != "" && port != "0" && port != "null" && pc.LanIP != "" {
+			pc.AdbSerial = net.JoinHostPort(pc.LanIP, port)
 		}
 		pc.LastReport, pc.LastNetwork, pc.LastBattery = time.Now(), rep.Network, rep.Battery
 		savePhoneCfg(pc)
