@@ -653,9 +653,8 @@ func waitForColor(x, y int, color string, tol, timeoutMs int, stop func() bool) 
 
 type trigState struct {
 	until   time.Time
-	was     bool
-	started bool
-	base    []byte
+	was   bool
+	base  []byte
 }
 
 type watcher struct {

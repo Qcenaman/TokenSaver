@@ -340,7 +340,7 @@ func runWinOCR(ctx context.Context, r ocrReq, each func(ocrPage)) ([]byte, error
 	case ctx.Err() != nil:
 		return img, errors.New("OCR took too long")
 	case werr != nil:
-		return img, fmt.Errorf("Windows OCR failed: %v %s", werr, clip(strings.TrimSpace(string(stderr.b)), 300))
+		return img, fmt.Errorf("OCR (Windows) failed: %v %s", werr, clip(strings.TrimSpace(string(stderr.b)), 300))
 	}
 	return img, nil
 }

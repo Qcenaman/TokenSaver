@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -90,7 +89,7 @@ func shDelete(paths []string) error {
 	r, _, _ := procSHFileOperationW.Call(uintptr(unsafe.Pointer(&op)))
 	runtime.KeepAlive(buf)
 	if r != 0 {
-		return fmt.Errorf("Windows error 0x%x", r)
+		return fmt.Errorf("win32 error 0x%x", r)
 	}
 	if op.FAnyOperationsAborted != 0 {
 		return errors.New("cancelled")
@@ -298,7 +297,7 @@ func quietCmd(name string, args ...string) *exec.Cmd {
 }
 
 // stopLocalAI stops the script this job started and, if the script launched the
-// server separately, that server — only while the port still belongs to it (same pid,
+// server separately, that server â€” only while the port still belongs to it (same pid,
 // same model). A model loaded on the port by someone else is never touched.
 func stopLocalAI(p *aiProc, port, ownPid int, ownModel string) {
 	if p.cmd.Process != nil && !p.exited() {
@@ -323,16 +322,6 @@ func stopLocalAI(p *aiProc, port, ownPid int, ownModel string) {
 }
 
 func listenerPid(port int) int { return pidOnPort(port) }
-
-func portAnswers(port int) bool {
-	c := &http.Client{Timeout: 1500 * time.Millisecond}
-	resp, err := c.Get(fmt.Sprintf("http://127.0.0.1:%d/health", port))
-	if err != nil {
-		return false
-	}
-	resp.Body.Close()
-	return true
-}
 
 func pidOnPort(port int) int {
 	out, err := quietCmd("netstat", "-ano", "-p", "tcp").Output()

@@ -83,7 +83,7 @@ func focusWindow(w winInfo) error {
 		}
 		time.Sleep(25 * time.Millisecond)
 	}
-	return errors.New("Windows didn't let TokenSaver bring that window to the front")
+	return errors.New("the window could not be brought to the front (Windows refused)")
 }
 
 // captureWindow draws the window into an image even when other windows cover it.

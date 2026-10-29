@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -91,7 +90,7 @@ func sysInfo() string {
 		for _, l := range strings.Split(out, "\n") {
 			f := strings.Split(l, ",")
 			if len(f) >= 6 {
-				gs = append(gs, fmt.Sprintf("%s, driver %s, %s VRAM (%s used), %s busy, %s°C",
+				gs = append(gs, fmt.Sprintf("%s, driver %s, %s VRAM (%s used), %s busy, %sÂ°C",
 					strings.TrimSpace(f[0]), strings.TrimSpace(f[1]), strings.TrimSpace(f[2]), strings.TrimSpace(f[3]), strings.TrimSpace(f[4]), strings.TrimSpace(f[5])))
 			}
 		}
@@ -117,7 +116,7 @@ func sysInfo() string {
 	lines = append(lines, platformInfo()...)
 	wg.Wait()
 	if cuda != "" {
-		gpu += " · driver supports CUDA up to " + cuda
+		gpu += " Â· driver supports CUDA up to " + cuda
 	}
 	lines = append(lines, gpu)
 	var found, missing []string
@@ -133,7 +132,7 @@ func sysInfo() string {
 	} else {
 		missing = append(missing, "7-Zip")
 	}
-	lines = append(lines, "Tools: "+strings.Join(found, " · "))
+	lines = append(lines, "Tools: "+strings.Join(found, " Â· "))
 	if len(missing) > 0 {
 		lines = append(lines, "Not found: "+strings.Join(missing, ", "))
 	}
@@ -226,7 +225,7 @@ func procList(filter string) (string, error) {
 		}
 		fmt.Fprintf(&b, "\n%d %s %s", p.pid, p.name, hb(p.mem))
 		if p.cmd != "" {
-			b.WriteString(" — " + clip(p.cmd, 200))
+			b.WriteString(" â€” " + clip(p.cmd, 200))
 		}
 	}
 	return b.String(), nil
@@ -255,7 +254,7 @@ func portList(port int) (string, error) {
 		if n > 60 {
 			continue
 		}
-		fmt.Fprintf(&b, "\nport %d (%s) — pid %d %s", l.port, l.addr, l.pid, names[l.pid])
+		fmt.Fprintf(&b, "\nport %d (%s) â€” pid %d %s", l.port, l.addr, l.pid, names[l.pid])
 	}
 	if n == 0 {
 		if port > 0 {
@@ -351,7 +350,3 @@ func fmtDisk(letter, kind string, free, total uint64) string {
 	return fmt.Sprintf("%s %s free of %s (%s)", letter, hb(int64(free)), hb(int64(total)), kind)
 }
 
-func appExeDir() string {
-	e, _ := os.Executable()
-	return filepath.Dir(e)
-}

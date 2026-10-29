@@ -442,7 +442,7 @@ func replaceInRuns(frag string, tRe *regexp.Regexp, open string, close string, r
 		var no []int
 		for i := 0; i < len(full); {
 			if i+len(find) <= len(full) && string(full[i:i+len(find)]) == r.Find {
-				for _, c := range []rune(r.With) {
+				for _, c := range r.With {
 					nf = append(nf, c)
 					no = append(no, owner[i])
 				}

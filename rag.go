@@ -1302,9 +1302,7 @@ func ragSearch(a ragSearchArgs) (string, error) {
 		hits = append(hits, cand...)
 	}
 	if scope != "files" {
-		for _, nh := range searchNotes(qv, words, a.Tag) {
-			hits = append(hits, nh)
-		}
+		hits = append(hits, searchNotes(qv, words, a.Tag)...)
 	}
 	sort.Slice(hits, func(a, b int) bool { return hits[a].score > hits[b].score })
 	// At most 2 passages per file, so one big file doesn't fill the results.

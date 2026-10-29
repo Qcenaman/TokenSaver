@@ -314,7 +314,7 @@ func officeConvert(p string, a officeArgs) (string, error) {
 	}
 	fi, err := os.Stat(to)
 	if err != nil {
-		return "", errors.New("Office finished but no file was written")
+		return "", errors.New("conversion finished but Office wrote no file")
 	}
 	return fmt.Sprintf("converted to %s (%s)%s", to, hb(fi.Size()), note), nil
 }

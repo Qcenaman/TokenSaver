@@ -818,7 +818,7 @@ func (d *pdfDoc) pageContent(pg pdfDict) []byte {
 	return b.Bytes()
 }
 
-var pdfLigatures = strings.NewReplacer("ﬀ", "ff", "ﬁ", "fi", "ﬂ", "fl", "ﬃ", "ffi", "ﬄ", "ffl", "ﬅ", "st", "ﬆ", "st", " ", " ", "­", "")
+var pdfLigatures = strings.NewReplacer("ﬀ", "ff", "ﬁ", "fi", "ﬂ", "fl", "ﬃ", "ffi", "ﬄ", "ffl", "ﬅ", "st", "ﬆ", "st", "\u00a0", " ", "\u00ad", "")
 
 func cleanPDFText(s string) string {
 	s = pdfLigatures.Replace(s)

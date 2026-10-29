@@ -162,7 +162,7 @@ func ckSetup(force bool) (string, error) {
 		}
 		pyExe, err := exec.LookPath(sys)
 		if err != nil {
-			return "", errors.New("Python not found: install Python 3 or uv, then run check with action:setup")
+			return "", errors.New("no Python found: install Python 3 or uv, then run check with action:setup")
 		}
 		if !ckExists(py) {
 			if _, err := ckStep("creating Python env", dir, 5*time.Minute, pyExe, "-m", "venv", venv); err != nil {
@@ -175,7 +175,7 @@ func ckSetup(force bool) (string, error) {
 	}
 	npm, err := exec.LookPath("npm")
 	if err != nil {
-		return "", errors.New("Node.js not found: install Node.js, then run check with action:setup")
+		return "", errors.New("no Node.js found: install Node.js, then run check with action:setup")
 	}
 	pkg := filepath.Join(nodeDir, "package.json")
 	if !ckExists(pkg) {

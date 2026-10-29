@@ -78,17 +78,17 @@ func linkHandler(c linkConfig) http.Handler {
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, "ok") })
 	mux.HandleFunc("/mcp", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "POST" {
-			http.Error(w, "POST only", 405)
+			http.Error(w, "POST only", http.StatusMethodNotAllowed)
 			return
 		}
 		ip := clientIP(r)
 		if mcpFails.blocked(ip) {
-			http.Error(w, "too many failures", 429)
+			http.Error(w, "too many failures", http.StatusTooManyRequests)
 			return
 		}
 		if bearer(r) != c.Token {
 			mcpFails.fail(ip)
-			http.Error(w, "unauthorized", 401)
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
 		body, _ := io.ReadAll(io.LimitReader(r.Body, 64<<20))
@@ -111,7 +111,7 @@ func linkHandler(c linkConfig) http.Handler {
 	mux.HandleFunc("/phone/report", func(w http.ResponseWriter, r *http.Request) {
 		if bearer(r) != c.Token {
 			mcpFails.fail(clientIP(r))
-			http.Error(w, "unauthorized", 401)
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
 		var rep struct {

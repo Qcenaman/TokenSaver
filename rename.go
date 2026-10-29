@@ -1,7 +1,6 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -374,11 +373,11 @@ func stepRename(j *Job, st *Step, res *StepResult) error {
 				it.target = uniqueRename(it.target, taken, moving)
 				k = normCase(it.target)
 			case "skip":
-				clashes = append(clashes, it.e.src+" → "+filepath.Base(it.target))
+				clashes = append(clashes, it.e.src+" â†’ "+filepath.Base(it.target))
 				it.skip = true
 				continue
 			default:
-				clashes = append(clashes, it.e.src+" → "+filepath.Base(it.target))
+				clashes = append(clashes, it.e.src+" â†’ "+filepath.Base(it.target))
 			}
 		}
 		taken[k]++
@@ -409,7 +408,7 @@ func stepRename(j *Job, st *Step, res *StepResult) error {
 			if i >= 8 {
 				break
 			}
-			res.sample(it.e.info.Name() + " → " + filepath.Base(it.target))
+			res.sample(it.e.info.Name() + " â†’ " + filepath.Base(it.target))
 		}
 		return nil
 	}
@@ -469,4 +468,3 @@ func uniqueRename(p string, taken map[string]int, moving map[string]bool) string
 	return p
 }
 
-var errNoRules = errors.New("no rules")

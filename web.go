@@ -536,12 +536,12 @@ func searchBing(q string, n int) ([]webResult, error) {
 	}
 	resp, err := webClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("Bing: %v", cleanNetErr(err))
+		return nil, fmt.Errorf("web search (Bing): %v", cleanNetErr(err))
 	}
 	defer resp.Body.Close()
 	b, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
 	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("Bing answered %s", resp.Status)
+		return nil, fmt.Errorf("web search (Bing) answered %s", resp.Status)
 	}
 	var out []webResult
 	for _, blk := range splitBlocks(string(b), bingBlockRe) {

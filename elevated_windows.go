@@ -30,7 +30,6 @@ var (
 	procGetNamedPipeServerProcessId = modKernel32.NewProc("GetNamedPipeServerProcessId")
 	procQueryFullProcessImageNameW  = modKernel32.NewProc("QueryFullProcessImageNameW")
 	procFreeConsole                 = modKernel32.NewProc("FreeConsole")
-	procLocalFree                   = modKernel32.NewProc("LocalFree")
 )
 
 var errStopped = errors.New("stopped")
