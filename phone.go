@@ -2,6 +2,7 @@ package main
 
 // phone: reach the AdbSaver engine on the user's Android phone and pass tool calls through.
 // Route order: LAN (Wi-Fi) → Tailscale → adb fallback (basic shell/ui/screen) when the engine is down.
+// The phone reaches this PC over lan → tailscale → public_host → cloudflared tunnel (see phoneroutes.go).
 
 import (
 	"bytes"
@@ -28,6 +29,10 @@ type phoneConfig struct {
 	Token     string `json:"token,omitempty"`
 	AdbSerial string `json:"adb_serial,omitempty"` // last known ip:port for adb connect
 	Package   string `json:"package,omitempty"`
+	// filled by the phone's /phone/report
+	LastReport  time.Time `json:"last_report,omitempty"`
+	LastNetwork string    `json:"last_network,omitempty"`
+	LastBattery string    `json:"last_battery,omitempty"`
 }
 
 var (
@@ -234,6 +239,8 @@ func toolPhone(raw json.RawMessage) (string, []toolImage, error) {
 		Token   string          `json:"token"`
 		Port    int             `json:"port"`
 		Force   bool            `json:"force_adb"`
+		Mode    string          `json:"mode"`        // tunnel: start|stop|status; public: setup|set
+		Public  string          `json:"public_host"` // public: DDNS name / IP (optional :port); "" with set clears it
 	}
 	if err := json.Unmarshal(raw, &a); err != nil {
 		return "", nil, err
@@ -261,6 +268,25 @@ func toolPhone(raw json.RawMessage) (string, []toolImage, error) {
 		return phoneStatus(c), nil, nil
 	case "pair":
 		return phonePair(c)
+	case "tunnel":
+		return phoneTunnel(a.Mode), nil, nil
+	case "public":
+		if strings.ToLower(a.Mode) == "set" {
+			lc := loadLinkCfg()
+			lc.PublicHost = a.Public
+			writeJSONAtomic(linkCfgPath(), lc)
+			msg := "public_host: " + orDash(lc.PublicHost)
+			if err := pushRoutesToPhone(c, nil); err == nil {
+				msg += "\nroutes pushed to the phone"
+			}
+			return msg, nil, nil
+		}
+		return phonePublicSetup(a.Public), nil, nil
+	case "push_routes", "push-routes":
+		if err := pushRoutesToPhone(c, nil); err != nil {
+			return "", nil, err
+		}
+		return "routes pushed to the phone\n" + pcRoutesStatus(), nil, nil
 	case "adb":
 		serial, err := adbSerial(c)
 		if err != nil {
@@ -307,7 +333,54 @@ func phoneStatus(c phoneConfig) string {
 	} else {
 		sb.WriteString("adb: none\n")
 	}
+	sb.WriteString(pcRoutesStatus())
 	return strings.TrimSpace(sb.String())
+}
+
+// phoneTunnel: start/stop flip phone.tunnel in link.json (serve picks it up within 10 s); status reads tunnel.json.
+func phoneTunnel(mode string) string {
+	lc := loadLinkCfg()
+	switch strings.ToLower(mode) {
+	case "start", "on":
+		if cloudflaredExe() == "" {
+			return "cloudflared is not installed. Install it with:\n  " + cloudflaredInstall + "\nthen run phone tunnel start again."
+		}
+		lc.Tunnel = "cloudflared"
+		writeJSONAtomic(linkCfgPath(), lc)
+		if !phoneHealth(fmt.Sprintf("http://127.0.0.1:%d", lc.Port), time.Second) {
+			return "tunnel enabled, but tokensaver serve is not running (tokensaver install-link registers it at sign-in)."
+		}
+		for i := 0; i < 40; i++ {
+			time.Sleep(time.Second)
+			if st := loadTunnelState(); st.State == "up" || st.State == "failed" || st.State == "missing" {
+				break
+			}
+		}
+	case "stop", "off":
+		lc.Tunnel = "off"
+		writeJSONAtomic(linkCfgPath(), lc)
+		for i := 0; i < 15; i++ {
+			if loadTunnelState().State == "off" {
+				break
+			}
+			time.Sleep(time.Second)
+		}
+	case "", "status":
+	default:
+		return "mode must be start, stop or status"
+	}
+	st := loadTunnelState()
+	s := "tunnel: " + st.State
+	if st.URL != "" {
+		s += " " + st.URL
+	}
+	if st.Error != "" {
+		s += " — " + st.Error
+	}
+	if lc.TunnelHostname != "" {
+		s += "\nnamed tunnel: " + lc.TunnelHostname
+	}
+	return s
 }
 
 // phonePair reads the engine's token over adb (the phone must be on the LAN), records the LAN and
@@ -340,7 +413,7 @@ func phonePair(c phoneConfig) (string, []toolImage, error) {
 	if err := pushLinkToPhone(c); err != nil {
 		msg += "\nphone could not store the PC link: " + err.Error()
 	} else {
-		msg += "\nPC link stored on the phone (it can now reach this PC over LAN or Tailscale)"
+		msg += "\nPC link stored on the phone (it can now reach this PC over LAN, Tailscale, public_host or the tunnel, whichever answers)"
 	}
 	return msg + "\n" + phoneStatus(c), nil, nil
 }
@@ -352,13 +425,9 @@ func pushLinkToPhone(c phoneConfig) error {
 		return errors.New("engine unreachable")
 	}
 	lc := loadLinkCfg()
-	lanIP, mac := localRouteTo(c.LanIP)
-	var ts string
-	if ips := tailscaleIPs(); len(ips) > 0 {
-		ts = ips[0]
-	}
+	_, mac := localRouteTo(c.LanIP)
 	host, _ := os.Hostname()
-	body, _ := json.Marshal(map[string]any{"token": lc.Token, "port": lc.Port, "lan_ip": lanIP, "tailscale_ip": ts, "mac": mac, "name": host})
+	body, _ := json.Marshal(buildLinkJSON(lc, currentRoutes(lc, c.LanIP), mac, host))
 	req, _ := http.NewRequest("POST", base+"/link", bytes.NewReader(body))
 	req.Header.Set("Authorization", "Bearer "+c.Token)
 	req.Header.Set("Content-Type", "application/json")

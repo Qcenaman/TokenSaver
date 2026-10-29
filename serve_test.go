@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -40,8 +41,26 @@ func TestLinkHandler(t *testing.T) {
 	if code, _ := post("/mcp", "secret", `{"jsonrpc":"2.0","method":"notifications/initialized"}`); code != 204 {
 		t.Fatalf("notification should be 204, got %d", code)
 	}
-	if code, _ := post("/phone/report", "secret", `{"LanIP":"192.168.1.50","TailscaleIP":"100.1.2.3","AdbSerial":"192.168.1.50:4242"}`); code != 200 {
+	code, body := post("/phone/report", "secret", `{"LanIP":"192.168.1.50","TailscaleIP":"100.1.2.3","AdbSerial":"192.168.1.50:4242"}`)
+	if code != 200 {
 		t.Fatalf("report: %d", code)
+	}
+	var rep struct {
+		Routes map[string]*string `json:"routes"`
+	}
+	if err := json.Unmarshal([]byte(body), &rep); err != nil {
+		t.Fatalf("report reply is not JSON: %s", body)
+	}
+	for _, k := range []string{"tunnel_url", "public_host", "tailscale_ip", "lan_ip"} {
+		if v, ok := rep.Routes[k]; !ok || v == nil {
+			t.Fatalf("routes.%s missing in %s", k, body)
+		}
+	}
+	if *rep.Routes["tunnel_url"] != "" || *rep.Routes["public_host"] != "" {
+		t.Fatalf("unset routes must be empty strings: %s", body)
+	}
+	if code, _ := post("/phone/report", "wrong", `{}`); code != 401 {
+		t.Fatalf("report without token should be 401, got %d", code)
 	}
 	if pc := loadPhoneCfg(); pc.LanIP != "192.168.1.50" || pc.TSIP != "100.1.2.3" || pc.AdbSerial != "192.168.1.50:4242" {
 		t.Fatalf("report not stored: %+v", pc)

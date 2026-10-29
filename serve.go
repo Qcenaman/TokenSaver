@@ -1,7 +1,7 @@
 package main
 
-// serve: an HTTP front for the same MCP tools, bound only to the PC's Tailscale address (and
-// localhost), token-protected. Lets the phone (AdbSaver) reach this PC from anywhere.
+// serve: a token-protected HTTP front for the same MCP tools, on every address of the PC, so the
+// phone (AdbSaver) reaches it over the LAN, Tailscale, a forwarded public port or a cloudflared tunnel.
 
 import (
 	"crypto/rand"
@@ -14,13 +14,16 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 )
 
 type linkConfig struct {
-	Token string `json:"token"`
-	Port  int    `json:"port,omitempty"`
+	Token          string `json:"token"`
+	Port           int    `json:"port,omitempty"`
+	Tunnel         string `json:"tunnel,omitempty"`          // cloudflared | off; empty = on when cloudflared is installed
+	TunnelHostname string `json:"tunnel_hostname,omitempty"` // named tunnel: stable hostname
+	TunnelCreds    string `json:"tunnel_credentials,omitempty"`
+	PublicHost     string `json:"public_host,omitempty"` // DDNS name or IP (optional :port) forwarded on the router
 }
 
 func linkCfgPath() string { return filepath.Join(appHome, "link.json") }
@@ -78,7 +81,13 @@ func linkHandler(c linkConfig) http.Handler {
 			http.Error(w, "POST only", 405)
 			return
 		}
+		ip := clientIP(r)
+		if mcpFails.blocked(ip) {
+			http.Error(w, "too many failures", 429)
+			return
+		}
 		if bearer(r) != c.Token {
+			mcpFails.fail(ip)
 			http.Error(w, "unauthorized", 401)
 			return
 		}
@@ -97,9 +106,11 @@ func linkHandler(c linkConfig) http.Handler {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write(out)
 	})
-	// The phone reports its addresses whenever they change, so the phone tool always knows where it is.
+	// The phone reports its addresses whenever they change (and every ~15 min); the reply always
+	// carries this PC's current routes, which is how the phone learns a new tunnel URL on mobile data.
 	mux.HandleFunc("/phone/report", func(w http.ResponseWriter, r *http.Request) {
 		if bearer(r) != c.Token {
+			mcpFails.fail(clientIP(r))
 			http.Error(w, "unauthorized", 401)
 			return
 		}
@@ -118,43 +129,48 @@ func linkHandler(c linkConfig) http.Handler {
 		if rep.AdbSerial != "" {
 			pc.AdbSerial = rep.AdbSerial
 		}
+		pc.LastReport, pc.LastNetwork, pc.LastBattery = time.Now(), rep.Network, rep.Battery
 		savePhoneCfg(pc)
-		io.WriteString(w, "ok")
+		lc := loadLinkCfg()
+		out, _ := json.Marshal(map[string]any{"routes": currentRoutes(lc, pc.LanIP)})
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(out)
 	})
 	return mux
 }
 
-// serveLink runs the HTTP front until the process ends, re-binding when the Tailscale address appears or changes.
+// serveLink runs the HTTP front on all addresses until the process ends, and supervises the
+// cloudflared tunnel when it is wanted (link.json is re-read every 10 s, so phone tunnel start/stop
+// take effect without a restart).
 func serveLink() {
 	c := loadLinkCfg()
 	h := linkHandler(c)
-	var mu sync.Mutex
-	servers := map[string]*http.Server{}
-	start := func(ip string) {
-		mu.Lock()
-		defer mu.Unlock()
-		if _, ok := servers[ip]; ok {
-			return
-		}
-		srv := &http.Server{Addr: net.JoinHostPort(ip, fmt.Sprint(c.Port)), Handler: h, ReadHeaderTimeout: 10 * time.Second}
-		ln, err := net.Listen("tcp", srv.Addr)
-		if err != nil {
-			fmt.Println("cannot listen on", srv.Addr+":", err)
-			return
-		}
-		servers[ip] = srv
-		fmt.Println("tokensaver link on", srv.Addr)
-		go func() {
-			srv.Serve(ln)
-			mu.Lock()
-			delete(servers, ip)
-			mu.Unlock()
-		}()
+	srv := &http.Server{Addr: net.JoinHostPort("0.0.0.0", fmt.Sprint(c.Port)), Handler: h, ReadHeaderTimeout: 10 * time.Second}
+	ln, err := net.Listen("tcp", srv.Addr)
+	if err != nil {
+		fmt.Println("cannot listen on", srv.Addr+":", err)
+		os.Exit(1)
 	}
-	start("127.0.0.1")
+	fmt.Println("tokensaver link on", srv.Addr)
+	go srv.Serve(ln)
+	saveTunnelState(tunnelState{State: "off"})
+	tun := &tunnelSupervisor{onURL: func(u string) {
+		if u == "" {
+			return
+		}
+		fmt.Println("tunnel", u)
+		go func() {
+			if err := pushRoutesToPhone(loadPhoneCfg(), nil); err != nil {
+				fmt.Println("could not push the tunnel URL to the phone (it will get it at its next report):", err)
+			}
+		}()
+	}}
 	for {
-		for _, ip := range tailscaleIPs() {
-			start(ip)
+		lc := loadLinkCfg()
+		if tunnelWanted(lc) {
+			tun.start(lc)
+		} else {
+			tun.stop()
 		}
 		time.Sleep(10 * time.Second)
 	}
@@ -178,5 +194,9 @@ func consoleInstallLink() {
 	} else {
 		fmt.Println("Start it with:", exe, "serve")
 	}
-	fmt.Printf("Link port %d, token %s\nAllow inbound TCP %d from 100.64.0.0/10 only (Tailscale).\n", c.Port, c.Token, c.Port)
+	fmt.Printf("Link port %d, token %s\n", c.Port, c.Token)
+	fmt.Println(firewallAllowLink(c.Port))
+	if cloudflaredExe() == "" {
+		fmt.Println("For the no-Tailscale route install cloudflared:", cloudflaredInstall)
+	}
 }

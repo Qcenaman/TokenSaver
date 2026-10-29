@@ -5,7 +5,7 @@ import (
 	"os"
 )
 
-const appVersion = "1.17.1"
+const appVersion = "1.18.0"
 
 func main() {
 	initApp()
@@ -37,6 +37,8 @@ func main() {
 		serveLink()
 	case "install-link":
 		consoleInstallLink()
+	case "phone":
+		os.Exit(phoneCLI(args[1:]))
 	case "version":
 		fmt.Println("tokensaver", appVersion)
 	case "terminal":

@@ -29,3 +29,44 @@ func TestTailscaleAndroidLine(t *testing.T) {
 		t.Fatalf("android peer not found: %v", m)
 	}
 }
+
+func TestParseCloudflaredURL(t *testing.T) {
+	quick := `2026-10-29T10:00:01Z INF |  https://quiet-otter-maple-rose.trycloudflare.com                                           |`
+	if got := parseCloudflaredURL(quick); got != "https://quiet-otter-maple-rose.trycloudflare.com" {
+		t.Fatalf("quick tunnel url: %q", got)
+	}
+	named := `2026-10-29T10:00:02Z INF Registered tunnel connection connIndex=0 connection=3f0b location=sin01 protocol=quic`
+	if got := parseCloudflaredURL(named); got != "" {
+		t.Fatalf("named tunnel line must give no quick url, got %q", got)
+	}
+	if parseCloudflaredURL("Requesting new quick Tunnel on trycloudflare.com...") != "" {
+		t.Fatal("banner line is not a url")
+	}
+}
+
+func TestBuildLinkJSON(t *testing.T) {
+	lc := linkConfig{Token: "tok", Port: 8766}
+	m := buildLinkJSON(lc, pcRoutes{LanIP: "192.168.1.2", TailscaleIP: ""}, "aa:bb", "pc")
+	if _, ok := m["public_host"]; ok {
+		t.Fatal("public_host must be absent when unset")
+	}
+	if _, ok := m["tunnel_url"]; ok {
+		t.Fatal("tunnel_url must be absent when unset")
+	}
+	if m["token"] != "tok" || m["port"] != 8766 || m["lan_ip"] != "192.168.1.2" {
+		t.Fatalf("base keys: %v", m)
+	}
+	m = buildLinkJSON(lc, pcRoutes{PublicHost: "home.duckdns.org", TunnelURL: "https://x.trycloudflare.com"}, "", "pc")
+	if m["public_host"] != "home.duckdns.org" || m["tunnel_url"] != "https://x.trycloudflare.com" {
+		t.Fatalf("routes missing: %v", m)
+	}
+}
+
+func TestIsCGNAT(t *testing.T) {
+	if !isCGNAT("100.70.1.2", "203.0.113.5") || !isCGNAT("192.168.0.2", "203.0.113.5") || !isCGNAT("203.0.113.9", "203.0.113.5") {
+		t.Fatal("should be CGNAT")
+	}
+	if isCGNAT("203.0.113.5", "203.0.113.5") {
+		t.Fatal("same public address is not CGNAT")
+	}
+}

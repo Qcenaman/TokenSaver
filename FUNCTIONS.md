@@ -1,6 +1,6 @@
 # TokenSaver functions
 
-**Version 1.17.1**
+**Version 1.18.0**
 
 Windows PC helper that Claude hands work to, so the steps run on the PC instead of costing tokens in the chat. Runs as an MCP server in Claude desktop. Everything it keeps is in `D:\Claude Apps\TokenSaver`.
 
@@ -20,8 +20,8 @@ Windows PC helper that Claude hands work to, so the steps run on the PC instead 
 - **media** — audio/video as text: info, transcript (local Whisper on the GPU, cached), frames (stills + their OCR text)
 - **office** — Word, Excel, PowerPoint, PDF: create (from Markdown or rows), edit (replace text, add/delete paragraphs or slides, set cells and formulas, add rows and sheets; PDF merge, pick/reorder pages, rotate, stamp page numbers or watermark, split), read (outline, cells with formulas, PDF pages; old .doc/.xls/.ppt too), convert through installed Office (e.g. to PDF); old copy kept on every edit
 - **rag** — search your files by meaning (C: and D:, documents and code; index updated only when asked) and keep memory notes Claude can recall in later chats; uses the CPU by itself while ComfyUI or training holds the GPU
-- **phone** — your Android phone through the AdbSaver engine on it (same tools: find, read, write, scan, run, ui, screen, apps, notifications, system, web, local_ai, saved) over the LAN, Tailscale from anywhere, or plain adb when the engine is down; status, pair, config, adb
-- **serve** / **install-link** — the phone reaches this PC's tools the same way: a token-protected HTTP front on the Tailscale address (port 8766) run by the "TokenSaver Link" task
+- **phone** — your Android phone through the AdbSaver engine on it (same tools: find, read, write, scan, run, ui, screen, apps, notifications, system, web, local_ai, saved) over the LAN, Tailscale from anywhere, or plain adb when the engine is down; status, pair, config, adb, tunnel, public, push_routes
+- **serve** / **install-link** — the phone reaches this PC's tools the same way: a token-protected HTTP front (port 8766) run by the "TokenSaver Link" task, reachable over LAN, Tailscale, a forwarded public port (`phone public setup`) or a cloudflared tunnel (`phone tunnel start`, works behind CGNAT, no Tailscale needed); the phone gets the current routes at every report
 - **check** — lint and type-check code (Ruff + mypy for Python, ESLint + tsc for JS/TS, go vet + staticcheck for Go; skips gitignored files) on the PC, on the phone over ADB, or in a GitHub repo; safe autofixes with fix
 - **window** — read on-screen text without screenshots: list windows, a window's text (UI Automation, works on Chrome/Electron/Steam), OCR of a window or area, copy-all via clipboard (restored), do: click buttons and fill fields by name, click on OCR text, click/move/drag at a position, scroll, hold keys, press keys, several steps per call (never in Claude's own windows); OCR with positions; clipboard get/set; small screenshot of a window or area, or a local AI answer about it instead; long text saved to a file, optional local AI summary; wait for a window or text to show; changes-only re-reads
 - **Terminal** (double-click TokenSaver) — record or build macros, pick screen spots and colors, set your own triggers (hotkey, or a color showing/changing in a screen area → click or macro), run saved jobs and any tool; Ctrl+Alt+Esc stops
@@ -30,7 +30,17 @@ Also: tells Claude desktop to prefer TokenSaver over its built-in tools, undo fo
 
 ## What's new
 
+### 1.18.0
+- **phone tunnel** start/stop/status: cloudflared tunnel supervised by the link server (restarts itself); the phone reaches the PC without Tailscale, even behind CGNAT; new URLs are pushed to the phone and returned in every report
+- **phone public** setup/set: UPnP port forward + firewall rule for all profiles + CGNAT check; `public_host` (DDNS/IP) goes into the phone link
+- **phone push_routes** and PC routes in **phone status**; `/phone/report` answers with the current routes
+- Link server listens on all addresses; repeated bad tokens are rate-limited
+- `tokensaver phone …` also works from the command line
+
 ### 1.17.1
+- **check**: skips gitignored files; Go modules checked with go vet + staticcheck
+
+### 1.17.0
 - **phone** tool and the **TokenSaver Link** server: PC and phone reach each other anywhere over Tailscale
 - git/gh always run in your own session (the admin helper has no credential store)
 - A helper still serving an old or archived exe is restarted automatically, no prompt
