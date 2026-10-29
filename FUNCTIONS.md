@@ -1,6 +1,6 @@
 # TokenSaver functions
 
-**Version 1.18.1**
+**Version 1.18.2**
 
 Windows PC helper that Claude hands work to, so the steps run on the PC instead of costing tokens in the chat. Runs as an MCP server in Claude desktop. Everything it keeps is in `D:\Claude Apps\TokenSaver`.
 
@@ -29,6 +29,9 @@ Windows PC helper that Claude hands work to, so the steps run on the PC instead 
 Also: tells Claude desktop to prefer TokenSaver over its built-in tools, undo for file jobs, job-end signals through GitHub (no polling), protected system folders; the terminal also reconnects Claude desktop and installs or removes the admin helper.
 
 ## What's new
+
+### 1.18.2
+- check: Android lint for Gradle projects (Kotlin/Java), skips gitignored files, go vet + staticcheck for Go modules
 
 ### 1.18.1
 - Cleanup: all staticcheck findings fixed (dead code removed, lowercase error strings, http.Status* constants)
