@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"encoding/xml"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -40,7 +41,7 @@ type ckIssue struct {
 
 const ckReadyMarker = "ready-v1"
 
-var ckToolOrder = map[string]int{"ruff": 0, "mypy": 1, "eslint": 2, "tsc": 3, "vet": 4, "staticcheck": 5}
+var ckToolOrder = map[string]int{"ruff": 0, "mypy": 1, "eslint": 2, "tsc": 3, "vet": 4, "staticcheck": 5, "lint": 6}
 
 var ckSkipDirs = map[string]bool{".git": true, "node_modules": true, ".venv": true, "venv": true, "env": true,
 	"__pycache__": true, "dist": true, "build": true, ".next": true, ".mypy_cache": true, ".ruff_cache": true,
@@ -386,7 +387,7 @@ func ckGitIgnored(root string) []string {
 	return out
 }
 
-func ckCollect(root, single string, ign []string) (py, js, ts, gof int) {
+func ckCollect(root, single string, ign []string) (py, js, ts, gof, kt int) {
 	add := func(p string) {
 		switch strings.ToLower(filepath.Ext(p)) {
 		case ".py", ".pyi":
@@ -397,6 +398,8 @@ func ckCollect(root, single string, ign []string) (py, js, ts, gof int) {
 			}
 		case ".ts", ".tsx", ".mts", ".cts":
 			ts++
+		case ".kt", ".kts", ".java":
+			kt++
 		case ".go":
 			gof++
 		}
@@ -420,7 +423,7 @@ func ckCollect(root, single string, ign []string) (py, js, ts, gof int) {
 			return nil
 		}
 		add(p)
-		if py+js+ts+gof > 50000 {
+		if py+js+ts+gof+kt > 50000 {
 			return filepath.SkipAll
 		}
 		return nil
@@ -689,13 +692,14 @@ func toolCodeCheck(raw json.RawMessage) (string, error) {
 		return "", err
 	}
 	ign := ckGitIgnored(root)
-	py, js, ts, gof := ckCollect(root, single, ign)
+	py, js, ts, gof, kt := ckCollect(root, single, ign)
 	want := func(k string) bool { return a.Only == "" || a.Only == k }
 	doPy := py > 0 && want("python")
 	doJs := js+ts > 0 && want("js")
 	doGo := gof > 0 && single == "" && ckExists(filepath.Join(root, "go.mod")) && want("go")
-	if !doPy && !doJs && !doGo {
-		return fmt.Sprintf("Checked %s: no Python, JS/TS or Go module files found.", label), nil
+	doAndroid := single == "" && ckIsAndroid(root) && want("android")
+	if !doPy && !doJs && !doGo && !doAndroid {
+		return fmt.Sprintf("Checked %s: no Python, JS/TS, Go module or Android project files found.", label), nil
 	}
 	var issues []ckIssue
 	var fails []string
@@ -726,6 +730,10 @@ func toolCodeCheck(raw json.RawMessage) (string, error) {
 	if doGo {
 		add(ckGo(root))
 		ran = append(ran, "vet", "staticcheck")
+	}
+	if doAndroid {
+		add(ckAndroid(root))
+		ran = append(ran, "lint")
 	}
 	sort.SliceStable(issues, func(i, j int) bool {
 		x, y := issues[i], issues[j]
@@ -765,6 +773,9 @@ func toolCodeCheck(raw json.RawMessage) (string, error) {
 	}
 	if gof > 0 {
 		files = append(files, fmt.Sprintf("%d Go", gof))
+	}
+	if kt > 0 {
+		files = append(files, fmt.Sprintf("%d Kotlin/Java", kt))
 	}
 	var b strings.Builder
 	if setupMsg != "" {
@@ -859,4 +870,121 @@ func ckGo(root string) ([]ckIssue, string, string) {
 		fails = append(fails, "staticcheck failed: "+ckFirstLines(se+"\n"+so, 4))
 	}
 	return out, strings.Join(fails, "; "), ""
+}
+
+// ckIsAndroid: a Gradle wrapper plus the Android Gradle plugin in the root or a module build file.
+func ckIsAndroid(root string) bool {
+	gw := "gradlew"
+	if runtime.GOOS == "windows" {
+		gw = "gradlew.bat"
+	}
+	if !ckExists(filepath.Join(root, gw)) {
+		return false
+	}
+	files, _ := filepath.Glob(filepath.Join(root, "*", "build.gradle*"))
+	files = append(files, filepath.Join(root, "build.gradle"), filepath.Join(root, "build.gradle.kts"), filepath.Join(root, "gradle", "libs.versions.toml"))
+	for _, f := range files {
+		if ckFileHas(f, "com.android") {
+			return true
+		}
+	}
+	return false
+}
+
+type ckLintXML struct {
+	Issues []struct {
+		ID        string `xml:"id,attr"`
+		Severity  string `xml:"severity,attr"`
+		Message   string `xml:"message,attr"`
+		Locations []struct {
+			File   string `xml:"file,attr"`
+			Line   int    `xml:"line,attr"`
+			Column int    `xml:"column,attr"`
+		} `xml:"location"`
+	} `xml:"issue"`
+}
+
+// ckAndroid runs Android lint through the project's Gradle wrapper and reads the XML reports it writes.
+func ckAndroid(root string) ([]ckIssue, string, string) {
+	// Java's Windows selector needs a plain temp path, or Gradle fails with "Unable to establish loopback connection".
+	jtmp := filepath.Join(os.TempDir(), "jtmp")
+	if runtime.GOOS == "windows" {
+		jtmp = filepath.Join(os.Getenv("SystemDrive")+`\`, "jtmp")
+	}
+	os.MkdirAll(jtmp, 0o755)
+	env := []string{"JAVA_TOOL_OPTIONS=-Djdk.net.unixdomain.tmpdir=" + jtmp + " -Djava.io.tmpdir=" + jtmp}
+	gw := filepath.Join(root, "gradlew")
+	if runtime.GOOS == "windows" {
+		gw += ".bat"
+	}
+	start := time.Now().Add(-2 * time.Second)
+	so, se, code, err := ckRunEnv(env, root, 20*time.Minute, gw, "lint", "--console=plain", "-q", "--continue")
+	if err != nil {
+		return nil, "android lint: " + err.Error(), ""
+	}
+	var out []ckIssue
+	seen := map[string]bool{}
+	reports, libs := 0, 0
+	filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() {
+			switch d.Name() {
+			case ".git", ".gradle", ".kotlin", "node_modules", "intermediates", "tmp":
+				if p != root {
+					return filepath.SkipDir
+				}
+			}
+			return nil
+		}
+		n := d.Name()
+		if !strings.HasPrefix(n, "lint-results") || !strings.HasSuffix(n, ".xml") {
+			return nil
+		}
+		// an up-to-date lint task leaves its earlier report in place, which is still current
+		if info, err := d.Info(); err != nil || (code != 0 && info.ModTime().Before(start)) {
+			return nil
+		}
+		b, err := os.ReadFile(p)
+		if err != nil {
+			return nil
+		}
+		var r ckLintXML
+		if xml.Unmarshal(b, &r) != nil {
+			return nil
+		}
+		reports++
+		for _, is := range r.Issues {
+			if len(is.Locations) == 0 {
+				continue
+			}
+			l := is.Locations[0]
+			rel := ckRel(root, l.File)
+			key := is.ID + "|" + rel + "|" + strconv.Itoa(l.Line)
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			if filepath.IsAbs(rel) {
+				libs++
+				continue
+			}
+			out = append(out, ckIssue{Tool: "lint", File: rel, Line: l.Line, Col: l.Column,
+				Warn: is.Severity == "Warning" || is.Severity == "Information", Code: is.ID, Msg: is.Message})
+		}
+		return nil
+	})
+	if reports == 0 {
+		msg := regexp.MustCompile(`(?m)^Picked up JAVA_TOOL_OPTIONS.*\r?\n?`).ReplaceAllString(so+"\n"+se, "")
+		if i := strings.Index(msg, "What went wrong:"); i >= 0 {
+			msg = msg[i+len("What went wrong:"):]
+		}
+		return nil, "android lint failed: " + ckFirstLines(msg, 4), ""
+	}
+	note := ""
+	if libs > 0 {
+		note = fmt.Sprintf("lint skipped %d warning(s) inside libraries.", libs)
+	}
+	return out, "", note
 }

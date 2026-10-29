@@ -1,6 +1,9 @@
 package main
 
-import "testing"
+import (
+	"encoding/xml"
+	"testing"
+)
 
 func TestCkIgnored(t *testing.T) {
 	ign := []string{"data/", "tokensaver.exe"}
@@ -20,5 +23,13 @@ func TestCkGoLine(t *testing.T) {
 	m = ckGoLine.FindStringSubmatch(`vet: mcp.go:5:2: unreachable code`)
 	if m == nil || m[1] != "mcp.go" || m[5] != "" {
 		t.Fatalf("vet line: %q", m)
+	}
+}
+
+func TestCkLintXML(t *testing.T) {
+	var r ckLintXML
+	x := `<issues format="6"><issue id="SdCardPath" severity="Warning" message="Do not hardcode"><location file="C:\p\app\Fs.kt" line="10" column="5"/></issue></issues>`
+	if err := xml.Unmarshal([]byte(x), &r); err != nil || len(r.Issues) != 1 || r.Issues[0].ID != "SdCardPath" || r.Issues[0].Locations[0].Line != 10 {
+		t.Fatalf("lint xml: %v %+v", err, r)
 	}
 }

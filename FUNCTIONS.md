@@ -22,7 +22,7 @@ Windows PC helper that Claude hands work to, so the steps run on the PC instead 
 - **rag** â€” search your files by meaning (C: and D:, documents and code; index updated only when asked) and keep memory notes Claude can recall in later chats; uses the CPU by itself while ComfyUI or training holds the GPU
 - **phone** â€” your Android phone through the AdbSaver engine on it (same tools: find, read, write, scan, run, ui, screen, apps, notifications, system, web, local_ai, saved) over the LAN, Tailscale from anywhere, or plain adb when the engine is down; status, pair, config, adb, tunnel, public, push_routes
 - **serve** / **install-link** â€” the phone reaches this PC's tools the same way: a token-protected HTTP front (port 8766) run by the "TokenSaver Link" task, reachable over LAN, Tailscale, a forwarded public port (`phone public setup`) or a cloudflared tunnel (`phone tunnel start`, works behind CGNAT, no Tailscale needed); the phone gets the current routes at every report
-- **check** â€” lint and type-check code (Ruff + mypy for Python, ESLint + tsc for JS/TS, go vet + staticcheck for Go; skips gitignored files) on the PC, on the phone over ADB, or in a GitHub repo; safe autofixes with fix
+- **check** â€” lint and type-check code (Ruff + mypy for Python, ESLint + tsc for JS/TS, go vet + staticcheck for Go, Android lint for Gradle projects; skips gitignored files) on the PC, on the phone over ADB, or in a GitHub repo; safe autofixes with fix
 - **window** â€” read on-screen text without screenshots: list windows, a window's text (UI Automation, works on Chrome/Electron/Steam), OCR of a window or area, copy-all via clipboard (restored), do: click buttons and fill fields by name, click on OCR text, click/move/drag at a position, scroll, hold keys, press keys, several steps per call (never in Claude's own windows); OCR with positions; clipboard get/set; small screenshot of a window or area, or a local AI answer about it instead; long text saved to a file, optional local AI summary; wait for a window or text to show; changes-only re-reads
 - **Terminal** (double-click TokenSaver) â€” record or build macros, pick screen spots and colors, set your own triggers (hotkey, or a color showing/changing in a screen area â†’ click or macro), run saved jobs and any tool; Ctrl+Alt+Esc stops
 
@@ -40,7 +40,7 @@ Also: tells Claude desktop to prefer TokenSaver over its built-in tools, undo fo
 - Link server listens on all addresses; repeated bad tokens are rate-limited
 - `tokensaver phone â€¦` also works from the command line
 
-### 1.17.1
+### 1.18.0
 - **check**: skips gitignored files; Go modules checked with go vet + staticcheck
 
 ### 1.17.0
@@ -61,7 +61,7 @@ Also: tells Claude desktop to prefer TokenSaver over its built-in tools, undo fo
 - **rag** tool: meaning search over files, memory notes
 - **phone** â€” your Android phone through the AdbSaver engine on it (same tools: find, read, write, scan, run, ui, screen, apps, notifications, system, web, local_ai, saved) over the LAN, Tailscale from anywhere, or plain adb when the engine is down; status, pair, config, adb
 - **serve** / **install-link** â€” the phone reaches this PC's tools the same way: a token-protected HTTP front on the Tailscale address (port 8766) run by the "TokenSaver Link" task
-- **check** â€” lint and type-check code (Ruff + mypy for Python, ESLint + tsc for JS/TS, go vet + staticcheck for Go; skips gitignored files) on the PC, on the phone over ADB, or in a GitHub repo; safe autofixes with fix
+- **check** â€” lint and type-check code (Ruff + mypy for Python, ESLint + tsc for JS/TS, go vet + staticcheck for Go, Android lint for Gradle projects; skips gitignored files) on the PC, on the phone over ADB, or in a GitHub repo; safe autofixes with fix
 ### 1.13.0
 - **office** tool: create, edit, read, convert Word/Excel/PowerPoint/PDF
 - **read**: Excel shows every sheet with cell refs and values; old .doc/.xls/.ppt readable
