@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -335,7 +336,69 @@ func phonePair(c phoneConfig) (string, []toolImage, error) {
 	if err := savePhoneCfg(c); err != nil {
 		return "", nil, err
 	}
-	return "paired\n" + phoneStatus(c), nil, nil
+	msg := "paired"
+	if err := pushLinkToPhone(c); err != nil {
+		msg += "\nphone could not store the PC link: " + err.Error()
+	} else {
+		msg += "\nPC link stored on the phone (it can now reach this PC over LAN or Tailscale)"
+	}
+	return msg + "\n" + phoneStatus(c), nil, nil
+}
+
+// pushLinkToPhone gives the phone everything it needs to reach this PC from anywhere.
+func pushLinkToPhone(c phoneConfig) error {
+	base, _ := phoneReach(c, true)
+	if base == "" {
+		return errors.New("engine unreachable")
+	}
+	lc := loadLinkCfg()
+	lanIP, mac := localRouteTo(c.LanIP)
+	var ts string
+	if ips := tailscaleIPs(); len(ips) > 0 {
+		ts = ips[0]
+	}
+	host, _ := os.Hostname()
+	body, _ := json.Marshal(map[string]any{"token": lc.Token, "port": lc.Port, "lan_ip": lanIP, "tailscale_ip": ts, "mac": mac, "name": host})
+	req, _ := http.NewRequest("POST", base+"/link", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+c.Token)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := phoneHTTP.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		b, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("%d %s", resp.StatusCode, strings.TrimSpace(string(b)))
+	}
+	return nil
+}
+
+// localRouteTo returns the local IPv4 and MAC of the interface that reaches target (for the phone's Wake-on-LAN).
+func localRouteTo(target string) (ip, mac string) {
+	if target == "" {
+		target = "192.168.1.1"
+	}
+	conn, err := net.Dial("udp", target+":9")
+	if err != nil {
+		return "", ""
+	}
+	defer conn.Close()
+	local := conn.LocalAddr().(*net.UDPAddr).IP.To4()
+	if local == nil {
+		return "", ""
+	}
+	ip = local.String()
+	ifs, _ := net.Interfaces()
+	for _, ifc := range ifs {
+		addrs, _ := ifc.Addrs()
+		for _, a := range addrs {
+			if ipn, ok := a.(*net.IPNet); ok && ipn.IP.Equal(local) {
+				return ip, ifc.HardwareAddr.String()
+			}
+		}
+	}
+	return ip, ""
 }
 
 func tailscaleExe() string {

@@ -33,6 +33,10 @@ func main() {
 		consoleInstallHelper()
 	case "uninstall-helper":
 		consoleUninstallHelper()
+	case "serve":
+		serveLink()
+	case "install-link":
+		consoleInstallLink()
 	case "version":
 		fmt.Println("tokensaver", appVersion)
 	case "terminal":
