@@ -49,6 +49,7 @@ func TestRag(t *testing.T) {
 	appHome = filepath.Join(dir, "home")
 	os.MkdirAll(filepath.Join(dir, "llama"), 0o755)
 	os.WriteFile(filepath.Join(dir, "llama", "llama-server"), nil, 0o755)
+	os.WriteFile(filepath.Join(dir, "llama", "llama-server.exe"), nil, 0o755)
 	cfg.AIScript = filepath.Join(dir, "llama", "x.bat")
 	docs := filepath.Join(dir, "docs")
 	os.MkdirAll(filepath.Join(docs, "node_modules"), 0o755)

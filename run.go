@@ -28,6 +28,12 @@ type runArgs struct {
 
 func outputPath(id string) string { return filepath.Join(jobsDir(), id, "output.log") }
 
+// userSessionRe matches a command whose program is git or gh (at the start or
+// after a shell separator) â€” tools that need the signed-in user's credential store.
+var userSessionRe = regexp.MustCompile(`(?i)(^|[&|;(]\s*)(git|gh)(\.exe)?(\s|$)`)
+
+func needsUserSession(command string) bool { return userSessionRe.MatchString(command) }
+
 func runCommand(j *Job) error {
 	a := j.Spec.Run
 	if strings.TrimSpace(a.Command) == "" {
@@ -67,6 +73,13 @@ func runCommand(j *Job) error {
 		exitCode func() (int, error)
 		done     = make(chan error, 1)
 	)
+	if a.Elevated && needsUserSession(a.Command) {
+		// The helper's logon session has no Credential Manager vault, so git/gh
+		// fail there ("Unable to persist credentials with the 'wincredman'
+		// credential store"); they don't need admin, so run them as the user.
+		a.Elevated = false
+		fmt.Fprintln(f, "(git/gh run without the admin helper: the helper's session has no credential store)")
+	}
 	if a.Elevated {
 		ep, err := startElevated(elevRequest{Command: a.Command, Shell: a.Shell, Cwd: cwd, Env: extra, Confirmed: a.Confirmed}, f)
 		if err != nil {

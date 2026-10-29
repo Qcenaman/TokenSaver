@@ -11,7 +11,25 @@ import (
 // lets a stale TokenSaver helper from an old install path be told apart from an
 // unrelated process that happens to hold the elevated pipe.
 func isTokenSaverExe(p string) bool {
-	return strings.EqualFold(filepath.Base(p), "tokensaver.exe")
+	b := strings.ToLower(filepath.Base(p))
+	return b == "tokensaver.exe" || strings.HasPrefix(b, "tokensaver.exe.old")
+}
+
+// restartHelperTask ends and re-runs the installed helper task (no UAC: the task
+// is already registered and points at the install path), so a helper still
+// serving an old or archived exe is replaced by the installed program. True once
+// the pipe is back up.
+func restartHelperTask() bool {
+	if !taskInstalled() {
+		return false
+	}
+	quietCmd("schtasks", "/End", "/TN", elevTaskName).Run()
+	time.Sleep(500 * time.Millisecond)
+	quietCmd("schtasks", "/Run", "/TN", elevTaskName).Run()
+	for i := 0; i < 40 && !pipeUp(); i++ {
+		time.Sleep(250 * time.Millisecond)
+	}
+	return pipeUp()
 }
 
 var (
