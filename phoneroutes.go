@@ -296,6 +296,27 @@ func pushRoutesToPhone(c phoneConfig, bases []string) error {
 		if resp.StatusCode == 200 {
 			return nil
 		}
+		if resp.StatusCode == 400 {
+			// The phone has no PC link yet (pairing never finished): send the full link, token included.
+			_, mac := localRouteTo(c.LanIP)
+			host, _ := os.Hostname()
+			full, _ := json.Marshal(buildLinkJSON(lc, r, mac, host))
+			ctx2, cancel2 := context.WithTimeout(context.Background(), 6*time.Second)
+			req2, _ := http.NewRequestWithContext(ctx2, "POST", base+"/link", bytes.NewReader(full))
+			req2.Header.Set("Authorization", "Bearer "+c.Token)
+			req2.Header.Set("Content-Type", "application/json")
+			resp2, err2 := phoneHTTP.Do(req2)
+			cancel2()
+			if err2 == nil {
+				b2, _ := io.ReadAll(io.LimitReader(resp2.Body, 4096))
+				resp2.Body.Close()
+				if resp2.StatusCode == 200 {
+					return nil
+				}
+				b = b2
+				resp.StatusCode = resp2.StatusCode
+			}
+		}
 		last = fmt.Errorf("%s: %d %s", base, resp.StatusCode, strings.TrimSpace(string(b)))
 	}
 	return last
