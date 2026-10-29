@@ -1,6 +1,6 @@
 # TokenSaver functions
 
-**Version 1.17.0**
+**Version 1.17.1**
 
 Windows PC helper that Claude hands work to, so the steps run on the PC instead of costing tokens in the chat. Runs as an MCP server in Claude desktop. Everything it keeps is in `D:\Claude Apps\TokenSaver`.
 
@@ -22,7 +22,7 @@ Windows PC helper that Claude hands work to, so the steps run on the PC instead 
 - **rag** — search your files by meaning (C: and D:, documents and code; index updated only when asked) and keep memory notes Claude can recall in later chats; uses the CPU by itself while ComfyUI or training holds the GPU
 - **phone** — your Android phone through the AdbSaver engine on it (same tools: find, read, write, scan, run, ui, screen, apps, notifications, system, web, local_ai, saved) over the LAN, Tailscale from anywhere, or plain adb when the engine is down; status, pair, config, adb
 - **serve** / **install-link** — the phone reaches this PC's tools the same way: a token-protected HTTP front on the Tailscale address (port 8766) run by the "TokenSaver Link" task
-- **check** — lint and type-check code (Ruff + mypy for Python, ESLint + tsc for JS/TS) on the PC, on the phone over ADB, or in a GitHub repo; safe autofixes with fix
+- **check** — lint and type-check code (Ruff + mypy for Python, ESLint + tsc for JS/TS, go vet + staticcheck for Go; skips gitignored files) on the PC, on the phone over ADB, or in a GitHub repo; safe autofixes with fix
 - **window** — read on-screen text without screenshots: list windows, a window's text (UI Automation, works on Chrome/Electron/Steam), OCR of a window or area, copy-all via clipboard (restored), do: click buttons and fill fields by name, click on OCR text, click/move/drag at a position, scroll, hold keys, press keys, several steps per call (never in Claude's own windows); OCR with positions; clipboard get/set; small screenshot of a window or area, or a local AI answer about it instead; long text saved to a file, optional local AI summary; wait for a window or text to show; changes-only re-reads
 - **Terminal** (double-click TokenSaver) — record or build macros, pick screen spots and colors, set your own triggers (hotkey, or a color showing/changing in a screen area → click or macro), run saved jobs and any tool; Ctrl+Alt+Esc stops
 
@@ -30,7 +30,7 @@ Also: tells Claude desktop to prefer TokenSaver over its built-in tools, undo fo
 
 ## What's new
 
-### 1.17.0
+### 1.17.1
 - **phone** tool and the **TokenSaver Link** server: PC and phone reach each other anywhere over Tailscale
 - git/gh always run in your own session (the admin helper has no credential store)
 - A helper still serving an old or archived exe is restarted automatically, no prompt
@@ -48,7 +48,7 @@ Also: tells Claude desktop to prefer TokenSaver over its built-in tools, undo fo
 - **rag** tool: meaning search over files, memory notes
 - **phone** — your Android phone through the AdbSaver engine on it (same tools: find, read, write, scan, run, ui, screen, apps, notifications, system, web, local_ai, saved) over the LAN, Tailscale from anywhere, or plain adb when the engine is down; status, pair, config, adb
 - **serve** / **install-link** — the phone reaches this PC's tools the same way: a token-protected HTTP front on the Tailscale address (port 8766) run by the "TokenSaver Link" task
-- **check** — lint and type-check code (Ruff + mypy for Python, ESLint + tsc for JS/TS) on the PC, on the phone over ADB, or in a GitHub repo; safe autofixes with fix
+- **check** — lint and type-check code (Ruff + mypy for Python, ESLint + tsc for JS/TS, go vet + staticcheck for Go; skips gitignored files) on the PC, on the phone over ADB, or in a GitHub repo; safe autofixes with fix
 ### 1.13.0
 - **office** tool: create, edit, read, convert Word/Excel/PowerPoint/PDF
 - **read**: Excel shows every sheet with cell refs and values; old .doc/.xls/.ppt readable

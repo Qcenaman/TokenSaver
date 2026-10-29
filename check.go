@@ -40,7 +40,7 @@ type ckIssue struct {
 
 const ckReadyMarker = "ready-v1"
 
-var ckToolOrder = map[string]int{"ruff": 0, "mypy": 1, "eslint": 2, "tsc": 3}
+var ckToolOrder = map[string]int{"ruff": 0, "mypy": 1, "eslint": 2, "tsc": 3, "vet": 4, "staticcheck": 5}
 
 var ckSkipDirs = map[string]bool{".git": true, "node_modules": true, ".venv": true, "venv": true, "env": true,
 	"__pycache__": true, "dist": true, "build": true, ".next": true, ".mypy_cache": true, ".ruff_cache": true,
@@ -62,12 +62,16 @@ func ckNodeMod(parts ...string) string {
 func ckExists(p string) bool { _, err := os.Stat(p); return err == nil }
 
 func ckRun(dir string, timeout time.Duration, name string, args ...string) (string, string, int, error) {
+	return ckRunEnv(nil, dir, timeout, name, args...)
+}
+
+func ckRunEnv(env []string, dir string, timeout time.Duration, name string, args ...string) (string, string, int, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	c := exec.CommandContext(ctx, name, args...)
 	hideWindow(c)
 	c.Dir = dir
-	c.Env = append(os.Environ(), "NO_COLOR=1", "PYTHONIOENCODING=utf-8", "PYTHONUTF8=1")
+	c.Env = append(append(os.Environ(), "NO_COLOR=1", "PYTHONIOENCODING=utf-8", "PYTHONUTF8=1"), env...)
 	var so, se strings.Builder
 	c.Stdout, c.Stderr = &so, &se
 	err := c.Run()
@@ -354,7 +358,35 @@ func ckTarget(a *checkArgs) (root, single, label string, notes []string, err err
 	return "", "", "", nil, errors.New("source must be pc, phone or repo")
 }
 
-func ckCollect(root, single string) (py, js, ts int) {
+func ckIgnored(rel string, ign []string) bool {
+	for _, p := range ign {
+		if rel == strings.TrimSuffix(p, "/") || (strings.HasSuffix(p, "/") && strings.HasPrefix(rel, p)) {
+			return true
+		}
+	}
+	return false
+}
+
+// ckGitIgnored lists gitignored paths under root (relative, folders end in /) when root is in a git work tree.
+func ckGitIgnored(root string) []string {
+	git, err := exec.LookPath("git")
+	if err != nil {
+		return nil
+	}
+	so, _, code, err := ckRun(root, time.Minute, git, "ls-files", "--others", "--ignored", "--exclude-standard", "--directory", "--no-empty-directory")
+	if err != nil || code != 0 {
+		return nil
+	}
+	var out []string
+	for _, l := range strings.Split(so, "\n") {
+		if l = strings.TrimSpace(l); l != "" {
+			out = append(out, l)
+		}
+	}
+	return out
+}
+
+func ckCollect(root, single string, ign []string) (py, js, ts, gof int) {
 	add := func(p string) {
 		switch strings.ToLower(filepath.Ext(p)) {
 		case ".py", ".pyi":
@@ -365,6 +397,8 @@ func ckCollect(root, single string) (py, js, ts int) {
 			}
 		case ".ts", ".tsx", ".mts", ".cts":
 			ts++
+		case ".go":
+			gof++
 		}
 	}
 	if single != "" {
@@ -375,14 +409,18 @@ func ckCollect(root, single string) (py, js, ts int) {
 		if err != nil {
 			return nil
 		}
+		rel := ckRel(root, p)
 		if d.IsDir() {
-			if p != root && ckSkipDirs[d.Name()] {
+			if p != root && (ckSkipDirs[d.Name()] || ckIgnored(rel+"/", ign)) {
 				return filepath.SkipDir
 			}
 			return nil
 		}
+		if ckIgnored(rel, ign) {
+			return nil
+		}
 		add(p)
-		if py+js+ts > 50000 {
+		if py+js+ts+gof > 50000 {
 			return filepath.SkipAll
 		}
 		return nil
@@ -447,12 +485,16 @@ func ckRuff(root, single string, fix bool) ([]ckIssue, string, string) {
 
 var ckMypyLine = regexp.MustCompile(`^(.+?):(\d+):(?:(\d+):)? (error|warning|note): (.*?)(?:  \[([\w-]+)\])?$`)
 
-func ckMypy(root, single string) ([]ckIssue, string) {
+func ckMypy(root, single string, ign []string) ([]ckIssue, string) {
 	args := []string{"-m", "mypy", "--ignore-missing-imports", "--no-error-summary", "--show-column-numbers", "--show-error-codes",
 		"--no-color-output", "--hide-error-context", "--no-pretty", "--explicit-package-bases",
 		"--cache-dir", filepath.Join(checkerDir(), "mypy_cache"),
 		"--exclude", `(^|[/\\])(\.venv|venv|env|node_modules|build|dist|site-packages|\.git|\.tox)([/\\]|$)`,
-		ckTarg(root, single)}
+	}
+	for _, p := range ign {
+		args = append(args, "--exclude", "^"+regexp.QuoteMeta(strings.TrimSuffix(p, "/"))+"(/|$)")
+	}
+	args = append(args, ckTarg(root, single))
 	so, se, code, err := ckRun(root, 5*time.Minute, ckVenvBin("python"), args...)
 	if err != nil {
 		return nil, "mypy: " + err.Error()
@@ -473,7 +515,7 @@ func ckMypy(root, single string) ([]ckIssue, string) {
 	return out, ""
 }
 
-func ckEslint(root, single string, fix bool) ([]ckIssue, string, string) {
+func ckEslint(root, single string, fix bool, ign []string) ([]ckIssue, string, string) {
 	node, err := exec.LookPath("node")
 	if err != nil {
 		return nil, "eslint: Node.js not found", ""
@@ -494,6 +536,12 @@ func ckEslint(root, single string, fix bool) ([]ckIssue, string, string) {
 		args = []string{ckNodeMod("eslint", "bin", "eslint.js"), "--config", filepath.Join(checkerDir(), "node", "eslint.config.mjs")}
 	}
 	args = append(args, "--format", "json", "--no-warn-ignored", "--no-error-on-unmatched-pattern")
+	for _, p := range ign {
+		if strings.HasSuffix(p, "/") {
+			p += "**"
+		}
+		args = append(args, "--ignore-pattern", p)
+	}
 	if fix {
 		args = append(args, "--fix")
 	}
@@ -535,7 +583,7 @@ func ckEslint(root, single string, fix bool) ([]ckIssue, string, string) {
 
 var ckTscLine = regexp.MustCompile(`^(.+?)\((\d+),(\d+)\): (error|warning) (TS\d+): (.*)$`)
 
-func ckTsc(root, single string, tsFiles int) ([]ckIssue, string, string) {
+func ckTsc(root, single string, tsFiles int, ign []string) ([]ckIssue, string, string) {
 	hasTsconfig := ckExists(filepath.Join(root, "tsconfig.json"))
 	if tsFiles == 0 && (single != "" || !hasTsconfig) {
 		return nil, "", ""
@@ -569,6 +617,9 @@ func ckTsc(root, single string, tsFiles int) ([]ckIssue, string, string) {
 			var ex []string
 			for d := range ckSkipDirs {
 				ex = append(ex, r+"/**/"+d)
+			}
+			for _, p := range ign {
+				ex = append(ex, r+"/"+strings.TrimSuffix(p, "/"))
 			}
 			sort.Strings(ex)
 			cfg["exclude"] = ex
@@ -637,11 +688,14 @@ func toolCodeCheck(raw json.RawMessage) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	py, js, ts := ckCollect(root, single)
-	doPy := py > 0 && a.Only != "js"
-	doJs := js+ts > 0 && a.Only != "python"
-	if !doPy && !doJs {
-		return fmt.Sprintf("Checked %s: no Python, JavaScript or TypeScript files found.", label), nil
+	ign := ckGitIgnored(root)
+	py, js, ts, gof := ckCollect(root, single, ign)
+	want := func(k string) bool { return a.Only == "" || a.Only == k }
+	doPy := py > 0 && want("python")
+	doJs := js+ts > 0 && want("js")
+	doGo := gof > 0 && single == "" && ckExists(filepath.Join(root, "go.mod")) && want("go")
+	if !doPy && !doJs && !doGo {
+		return fmt.Sprintf("Checked %s: no Python, JS/TS or Go module files found.", label), nil
 	}
 	var issues []ckIssue
 	var fails []string
@@ -657,17 +711,21 @@ func toolCodeCheck(raw json.RawMessage) (string, error) {
 	ran := []string{}
 	if doPy {
 		add(ckRuff(root, single, a.Fix))
-		is, fail := ckMypy(root, single)
+		is, fail := ckMypy(root, single, ign)
 		add(is, fail, "")
 		ran = append(ran, "ruff", "mypy")
 	}
 	if doJs {
-		add(ckEslint(root, single, a.Fix))
+		add(ckEslint(root, single, a.Fix, ign))
 		ran = append(ran, "eslint")
 		if ts > 0 || (single == "" && ckExists(filepath.Join(root, "tsconfig.json"))) {
-			add(ckTsc(root, single, ts))
+			add(ckTsc(root, single, ts, ign))
 			ran = append(ran, "tsc")
 		}
+	}
+	if doGo {
+		add(ckGo(root))
+		ran = append(ran, "vet", "staticcheck")
 	}
 	sort.SliceStable(issues, func(i, j int) bool {
 		x, y := issues[i], issues[j]
@@ -704,6 +762,9 @@ func toolCodeCheck(raw json.RawMessage) (string, error) {
 	}
 	if js+ts > 0 {
 		files = append(files, fmt.Sprintf("%d JS/TS", js+ts))
+	}
+	if gof > 0 {
+		files = append(files, fmt.Sprintf("%d Go", gof))
 	}
 	var b strings.Builder
 	if setupMsg != "" {
@@ -744,4 +805,58 @@ func toolCodeCheck(raw json.RawMessage) (string, error) {
 		b.WriteString(n + "\n")
 	}
 	return strings.TrimRight(b.String(), "\n"), nil
+}
+
+var ckGoLine = regexp.MustCompile(`^(?:vet: )?(.+?\.go):(\d+):(\d+): (.*?)(?: \(([A-Z]+\d+)\))?$`)
+
+// ckGo runs go vet and staticcheck on the Go module at root.
+func ckGo(root string) ([]ckIssue, string, string) {
+	goExe, err := exec.LookPath("go")
+	if err != nil {
+		return nil, "go vet: Go not found", ""
+	}
+	var out []ckIssue
+	var fails []string
+	parse := func(tool, s string) int {
+		n := 0
+		for _, l := range strings.Split(s, "\n") {
+			m := ckGoLine.FindStringSubmatch(strings.TrimSpace(l))
+			if m == nil {
+				continue
+			}
+			f := filepath.Clean(m[1])
+			if !filepath.IsAbs(f) {
+				f = filepath.Join(root, f)
+			}
+			ln, _ := strconv.Atoi(m[2])
+			col, _ := strconv.Atoi(m[3])
+			out = append(out, ckIssue{Tool: tool, File: ckRel(root, f), Line: ln, Col: col, Code: m[5], Msg: m[4]})
+			n++
+		}
+		return n
+	}
+	so, se, code, err := ckRun(root, 10*time.Minute, goExe, "vet", "./...")
+	if err != nil {
+		fails = append(fails, "go vet: "+err.Error())
+	} else if parse("vet", so+"\n"+se) == 0 && code != 0 {
+		fails = append(fails, "go vet failed: "+ckFirstLines(se+"\n"+so, 4))
+	}
+	sc := filepath.Join(checkerDir(), "go", "bin", "staticcheck")
+	if runtime.GOOS == "windows" {
+		sc += ".exe"
+	}
+	if !ckExists(sc) {
+		_, e, c, err := ckRunEnv([]string{"GOBIN=" + filepath.Dir(sc)}, root, 10*time.Minute, goExe, "install", "honnef.co/go/tools/cmd/staticcheck@latest")
+		if err != nil || c != 0 {
+			fails = append(fails, "staticcheck install failed: "+ckFirstLines(e, 4))
+			return out, strings.Join(fails, "; "), ""
+		}
+	}
+	so, se, code, err = ckRun(root, 10*time.Minute, sc, "-f", "text", "./...")
+	if err != nil {
+		fails = append(fails, "staticcheck: "+err.Error())
+	} else if parse("staticcheck", so) == 0 && code != 0 {
+		fails = append(fails, "staticcheck failed: "+ckFirstLines(se+"\n"+so, 4))
+	}
+	return out, strings.Join(fails, "; "), ""
 }
