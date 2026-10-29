@@ -26,10 +26,22 @@ func restartHelperTask() bool {
 	quietCmd("schtasks", "/End", "/TN", elevTaskName).Run()
 	time.Sleep(500 * time.Millisecond)
 	quietCmd("schtasks", "/Run", "/TN", elevTaskName).Run()
-	for i := 0; i < 40 && !pipeUp(); i++ {
+	return waitInstalledHelper(10 * time.Second)
+}
+
+// waitInstalledHelper: true once the pipe is served by the installed program (not an
+// old one that is still shutting down), waiting up to d for it.
+func waitInstalledHelper(d time.Duration) bool {
+	end := time.Now().Add(d)
+	for {
+		if pid, p := pipeServer(); pid != 0 && samePath(p, installPath()) {
+			return true
+		}
+		if time.Now().After(end) {
+			return false
+		}
 		time.Sleep(250 * time.Millisecond)
 	}
-	return pipeUp()
 }
 
 var (
@@ -55,9 +67,6 @@ func healHelper() bool {
 	if err := elevateSelf("install-helper"); err != nil {
 		return false
 	}
-	for i := 0; i < 40 && !pipeUp(); i++ {
-		time.Sleep(250 * time.Millisecond)
-	}
-	healedOK = pipeUp()
+	healedOK = waitInstalledHelper(10 * time.Second)
 	return healedOK
 }

@@ -1,6 +1,6 @@
 # TokenSaver functions
 
-**Version 1.18.2**
+**Version 1.18.4**
 
 Windows PC helper that Claude hands work to, so the steps run on the PC instead of costing tokens in the chat. Runs as an MCP server in Claude desktop. Everything it keeps is in `D:\Claude Apps\TokenSaver`.
 
@@ -29,6 +29,12 @@ Windows PC helper that Claude hands work to, so the steps run on the PC instead 
 Also: tells Claude desktop to prefer TokenSaver over its built-in tools, undo for file jobs, job-end signals through GitHub (no polling), protected system folders; the terminal also reconnects Claude desktop and installs or removes the admin helper.
 
 ## What's new
+
+### 1.18.4
+- phone status re-reads phone.json on every call (last report and adb_serial no longer stale); the phone's report can carry AdbPort (its live Wireless-debugging port), which pair and the adb fallback try before mDNS
+- After an update: the installed helper replaces an old one still holding the elevated pipe (the archived .old exe), so admin runs work straight away; the helper task restarts cleanly on each update
+- An MCP session still running an older TokenSaver puts "TokenSaver updated to X.Y.Z — restart Claude desktop" in front of every tool result instead of silently running old code
+- **system** restart_claude: quits and reopens Claude desktop so it loads the new version
 
 ### 1.18.2
 - check: Android lint for Gradle projects (Kotlin/Java), skips gitignored files, go vet + staticcheck for Go modules

@@ -205,6 +205,7 @@ func consoleInstall() {
 		}
 		fmt.Println("Installed to", target)
 	}
+	os.WriteFile(filepath.Join(filepath.Dir(target), "version.txt"), []byte(appVersion+"\n"), 0o644)
 	connected := 0
 	var todo []string
 	for _, p := range claudeConfigPaths() {

@@ -30,6 +30,7 @@ var (
 	procGetNamedPipeServerProcessId = modKernel32.NewProc("GetNamedPipeServerProcessId")
 	procQueryFullProcessImageNameW  = modKernel32.NewProc("QueryFullProcessImageNameW")
 	procFreeConsole                 = modKernel32.NewProc("FreeConsole")
+	procTerminateProcess            = modKernel32.NewProc("TerminateProcess")
 )
 
 var errStopped = errors.New("stopped")
@@ -214,6 +215,9 @@ func serveElevatedHelper() int {
 			255, 64<<10, 64<<10, 0, uintptr(unsafe.Pointer(sa)))
 		if syscall.Handle(h) == syscall.InvalidHandle {
 			if first {
+				if takeOverPipe() {
+					continue
+				}
 				audit("HELPER not started: the pipe already exists (%v) — another helper is running, or something else took the name", e)
 				return 0
 			}
@@ -228,6 +232,42 @@ func serveElevatedHelper() int {
 		}
 		go handleElevated(syscall.Handle(h))
 	}
+}
+
+// pipeServer: pid and program path of whatever serves the elevated pipe (0 when nothing does).
+func pipeServer() (uint32, string) {
+	name, _ := syscall.UTF16PtrFromString(elevPipeName)
+	h, err := syscall.CreateFile(name, syscall.GENERIC_READ|syscall.GENERIC_WRITE, 0, nil, syscall.OPEN_EXISTING, 0x00100000|0x00010000, 0)
+	if err != nil {
+		return 0, ""
+	}
+	defer syscall.CloseHandle(h)
+	var pid uint32
+	procGetNamedPipeServerProcessId.Call(uintptr(h), uintptr(unsafe.Pointer(&pid)))
+	return pid, processPath(pid)
+}
+
+// takeOverPipe: the pipe name is taken. When it is held by another TokenSaver that is not
+// the installed program (the archived .old exe after an update, or an old install path),
+// this helper, the installed one, ends it and serves instead: true once the name is free.
+// Anything else on the name is left alone.
+func takeOverPipe() bool {
+	pid, path := pipeServer()
+	if pid == 0 || pid == uint32(os.Getpid()) || !isTokenSaverExe(path) || samePath(path, installPath()) {
+		return false
+	}
+	h, _, _ := procOpenProcess.Call(0x0001, 0, uintptr(pid)) // PROCESS_TERMINATE
+	if h == 0 {
+		audit("HELPER couldn't end the old helper (pid %d, %s)", pid, path)
+		return false
+	}
+	procTerminateProcess.Call(h, 1)
+	syscall.CloseHandle(syscall.Handle(h))
+	audit("HELPER replaced the old helper (pid %d, %s)", pid, path)
+	for i := 0; i < 40 && pipeUp(); i++ {
+		time.Sleep(250 * time.Millisecond)
+	}
+	return !pipeUp()
 }
 
 func secAttrs(sddl string) (*syscall.SecurityAttributes, error) {
@@ -548,7 +588,7 @@ func consoleInstallHelper() {
     <Principal id="Author"><UserId>` + sid + `</UserId><LogonType>InteractiveToken</LogonType><RunLevel>HighestAvailable</RunLevel></Principal>
   </Principals>
   <Settings>
-    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <MultipleInstancesPolicy>StopExisting</MultipleInstancesPolicy>
     <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
     <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
     <AllowHardTerminate>true</AllowHardTerminate>
@@ -585,9 +625,7 @@ func consoleInstallHelper() {
 		time.Sleep(250 * time.Millisecond)
 	}
 	quietCmd("schtasks", "/Run", "/TN", elevTaskName).Run()
-	for i := 0; i < 40 && !pipeUp(); i++ {
-		time.Sleep(250 * time.Millisecond)
-	}
+	waitInstalledHelper(10 * time.Second)
 	audit("INSTALLED helper task for %s", sid)
 }
 
@@ -637,18 +675,15 @@ func refreshHelper() {
 	if !taskInstalled() {
 		return
 	}
-	// The task runs the program at a fixed path; when that path is unchanged, restarting
-	// the task (allowed without admin) loads the new version: no prompt needed.
-	if out, err := quietCmd("schtasks", "/Query", "/TN", elevTaskName, "/XML").Output(); err == nil &&
-		strings.Contains(strings.ToLower(decodeTaskXML(out)), strings.ToLower(installPath())) {
-		quietCmd("schtasks", "/End", "/TN", elevTaskName).Run()
-		time.Sleep(time.Second)
-		quietCmd("schtasks", "/Run", "/TN", elevTaskName).Run()
-		for i := 0; i < 20 && !pipeUp(); i++ {
-			time.Sleep(250 * time.Millisecond)
+	// The task runs the program at a fixed path; when that path is unchanged and the task
+	// replaces its running instance on /Run, restarting it (allowed without admin) loads
+	// the new version: no prompt needed. An older task (IgnoreNew) is re-registered once.
+	if out, err := quietCmd("schtasks", "/Query", "/TN", elevTaskName, "/XML").Output(); err == nil {
+		x := decodeTaskXML(out)
+		if strings.Contains(strings.ToLower(x), strings.ToLower(installPath())) && strings.Contains(x, "StopExisting") && restartHelperTask() {
+			fmt.Println("Elevated helper restarted on this version.")
+			return
 		}
-		fmt.Println("Elevated helper restarted on this version.")
-		return
 	}
 	if isElevated() {
 		fmt.Println("Run install-helper to point the elevated helper at this version.")

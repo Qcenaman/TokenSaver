@@ -5,7 +5,7 @@ import (
 	"os"
 )
 
-const appVersion = "1.18.2"
+const appVersion = "1.18.4"
 
 func main() {
 	initApp()
@@ -41,6 +41,8 @@ func main() {
 		os.Exit(phoneCLI(args[1:]))
 	case "version":
 		fmt.Println("tokensaver", appVersion)
+	case "restart-claude":
+		os.Exit(restartClaudeNow())
 	case "terminal":
 		terminal()
 	case "macro":

@@ -67,8 +67,10 @@ func toolSystem(raw json.RawMessage) (string, error) {
 		return portList(a.Port)
 	case "kill":
 		return killProcs(a.PIDs, a.Name, a.Match)
+	case "restart_claude":
+		return restartClaude()
 	}
-	return "", errors.New("action must be info, processes, ports or kill")
+	return "", errors.New("action must be info, processes, ports, kill or restart_claude")
 }
 
 var cudaRe = regexp.MustCompile(`CUDA Version:\s*([0-9.]+)`)
