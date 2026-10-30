@@ -24,7 +24,7 @@ func restartClaude() (string, error) {
 	if !exists(exe) {
 		exe, _ = os.Executable()
 	}
-	ps := "$s = New-CimInstance -ClassName Win32_ProcessStartup -ClientOnly -Property @{ShowWindow=0}; " +
+	ps := "$s = New-CimInstance -ClassName Win32_ProcessStartup -ClientOnly -Property @{ShowWindow=[uint16]0}; " +
 		"$r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{CommandLine=" +
 		psSingle(`"`+exe+`" restart-claude`) + "; ProcessStartupInformation=$s}; " +
 		"if ($r.ReturnValue -ne 0) { throw \"WMI returned $($r.ReturnValue)\" }"

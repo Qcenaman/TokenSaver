@@ -1,6 +1,6 @@
 # TokenSaver functions
 
-**Version 1.19.0**
+**Version 1.19.1**
 
 Windows PC helper that Claude hands work to, so the steps run on the PC instead of costing tokens in the chat. Runs as an MCP server in Claude desktop. Everything it keeps is in `D:\Claude Apps\TokenSaver`.
 
@@ -31,6 +31,8 @@ Also: tells Claude desktop to prefer TokenSaver over its built-in tools, undo fo
 
 ## What's new
 
+### 1.19.1
+- Fix: system restart_claude failed with a WMI type mismatch (ShowWindow must be a uint16)
 ### 1.19.0
 - **git** tool: status, log, diff, commit, push, pull, clone, release, handoff; always in the user session (no admin), GitHub sign-in goes straight to the browser
 - **git release**: bumps the version (main.go appVersion, package.json, pyproject.toml, build.gradle), adds the notes under What's new in FUNCTIONS.md, commits "version: message" and pushes
