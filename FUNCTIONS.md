@@ -1,6 +1,6 @@
 # TokenSaver functions
 
-**Version 1.18.5**
+**Version 1.19.0**
 
 Windows PC helper that Claude hands work to, so the steps run on the PC instead of costing tokens in the chat. Runs as an MCP server in Claude desktop. Everything it keeps is in `D:\Claude Apps\TokenSaver`.
 
@@ -8,12 +8,12 @@ Windows PC helper that Claude hands work to, so the steps run on the PC instead 
 
 - **scan** â€” folder overview: file count, size, types, dates, largest files
 - **find** â€” find files by name, size, date or text inside (text, code, Office, PDF) across many folders; shows up to 3 matching lines per file (lines) and how many more
-- **read** â€” read just part of a file: head, tail, lines, grep, plain text of Office/HTML/PDF, OCR of scans and pictures, chosen PDF pages, a small copy of a picture or PDF page, JSON values; changes-only re-reads
+- **read** â€” read just part of a file: head, tail, lines, grep, plain text of Office/HTML/PDF, OCR of scans and pictures, chosen PDF pages, a small copy of a picture or PDF page, JSON values; changes-only re-reads; hash (sha256/sha1/md5, verify against an expected value)
 - **run_job** â€” background file jobs: copy, move, sync, delete (Recycle Bin only), rename, mkdir, download, extract, edit, write; filters and dry-run
 - **job** â€” status, list, cancel, undo, notify when a job ends
 - **saved** â€” saved jobs, run by Claude or by double-click
 - **local_ai** â€” local model asks, summarizes or sorts files, PDFs and pictures so they stay out of the chat; starts and stops on its own; warns first if the GPU is busy
-- **run** â€” runs commands in the background and returns only the useful lines; admin commands without UAC prompts, destructive ones need a yes
+- **run** â€” runs commands in the background and returns only the useful lines (or the local AI's summary of a long output); admin commands without UAC prompts, destructive ones need a yes
 - **system** â€” PC info (drives, GPU, CUDA, installed tools), processes, ports, kill
 - **web** â€” search the web and read pages and PDFs on the PC; local AI can answer from pages
 - **browser** â€” real Chrome with its own TokenSaver profile (sign in once, stays signed in): open, text, find, links, click, fill, press, wait; text only, for JavaScript and signed-in pages
@@ -22,7 +22,8 @@ Windows PC helper that Claude hands work to, so the steps run on the PC instead 
 - **rag** â€” search your files by meaning (C: and D:, documents and code; index updated only when asked) and keep memory notes Claude can recall in later chats; uses the CPU by itself while ComfyUI or training holds the GPU
 - **phone** â€” your Android phone through the AdbSaver engine on it (same tools: find, read, write, scan, run, ui, screen, apps, notifications, system, web, local_ai, saved) over the LAN, Tailscale from anywhere, or plain adb when the engine is down; status, pair, config, adb, tunnel, public, push_routes
 - **serve** / **install-link** â€” the phone reaches this PC's tools the same way: a token-protected HTTP front (port 8766) run by the "TokenSaver Link" task, reachable over LAN, Tailscale, a forwarded public port (`phone public setup`) or a cloudflared tunnel (`phone tunnel start`, works behind CGNAT, no Tailscale needed); the phone gets the current routes at every report
-- **check** â€” lint and type-check code (Ruff + mypy for Python, ESLint + tsc for JS/TS, go vet + staticcheck for Go, Android lint for Gradle projects; skips gitignored files) on the PC, on the phone over ADB, or in a GitHub repo; safe autofixes with fix
+- **git** â€” Git in one call, never as admin, GitHub sign-in straight to the browser: status, log, diff, commit, push, pull, clone, release (bumps the version, adds the notes to this file, commits and pushes), handoff (notes for another project from the commits and diff, summarized by the local AI)
+- **check** â€” lint and type-check code (Ruff + mypy for Python, ESLint + tsc for JS/TS, go vet + staticcheck for Go, Android lint for Gradle projects; skips gitignored files) on the PC, on the phone over ADB, or in a GitHub repo; safe autofixes with fix; build: compile + run the project's tests and return only the failing lines
 - **window** â€” read on-screen text without screenshots: list windows, a window's text (UI Automation, works on Chrome/Electron/Steam), OCR of a window or area, copy-all via clipboard (restored), do: click buttons and fill fields by name, click on OCR text, click/move/drag at a position, scroll, hold keys, press keys, several steps per call (never in Claude's own windows); OCR with positions; clipboard get/set; small screenshot of a window or area, or a local AI answer about it instead; long text saved to a file, optional local AI summary; wait for a window or text to show; changes-only re-reads
 - **Terminal** (double-click TokenSaver) â€” record or build macros, pick screen spots and colors, set your own triggers (hotkey, or a color showing/changing in a screen area â†’ click or macro), run saved jobs and any tool; Ctrl+Alt+Esc stops
 
@@ -30,6 +31,13 @@ Also: tells Claude desktop to prefer TokenSaver over its built-in tools, undo fo
 
 ## What's new
 
+### 1.19.0
+- **git** tool: status, log, diff, commit, push, pull, clone, release, handoff; always in the user session (no admin), GitHub sign-in goes straight to the browser
+- **git release**: bumps the version (main.go appVersion, package.json, pyproject.toml, build.gradle), adds the notes under What's new in FUNCTIONS.md, commits "version: message" and pushes
+- **git handoff**: handoff notes for another project (ContextSaver, APIChat) from the commits and diff since a ref or the last tag, written by the local AI
+- **check** action build: go build -trimpath + go test, npm run build + npm test, gradlew assembleDebug + unit tests, python compileall + pytest; only failing lines come back, full log in cache\build
+- **run** summary:true: the local AI summarizes a long finished output instead of the tail
+- **read** mode hash: sha256/sha1/md5 of a file, pattern = expected hash -> MATCH/MISMATCH
 ### 1.18.5
 - Fix: the system tool definition was broken JSON in 1.18.4, so Claude desktop timed out on tools/list and TokenSaver never connected; a test now checks every tool definition
 
@@ -73,7 +81,8 @@ Also: tells Claude desktop to prefer TokenSaver over its built-in tools, undo fo
 - **rag** tool: meaning search over files, memory notes
 - **phone** â€” your Android phone through the AdbSaver engine on it (same tools: find, read, write, scan, run, ui, screen, apps, notifications, system, web, local_ai, saved) over the LAN, Tailscale from anywhere, or plain adb when the engine is down; status, pair, config, adb
 - **serve** / **install-link** â€” the phone reaches this PC's tools the same way: a token-protected HTTP front on the Tailscale address (port 8766) run by the "TokenSaver Link" task
-- **check** â€” lint and type-check code (Ruff + mypy for Python, ESLint + tsc for JS/TS, go vet + staticcheck for Go, Android lint for Gradle projects; skips gitignored files) on the PC, on the phone over ADB, or in a GitHub repo; safe autofixes with fix
+- **git** â€” Git in one call, never as admin, GitHub sign-in straight to the browser: status, log, diff, commit, push, pull, clone, release (bumps the version, adds the notes to this file, commits and pushes), handoff (notes for another project from the commits and diff, summarized by the local AI)
+- **check** â€” lint and type-check code (Ruff + mypy for Python, ESLint + tsc for JS/TS, go vet + staticcheck for Go, Android lint for Gradle projects; skips gitignored files) on the PC, on the phone over ADB, or in a GitHub repo; safe autofixes with fix; build: compile + run the project's tests and return only the failing lines
 ### 1.13.0
 - **office** tool: create, edit, read, convert Word/Excel/PowerPoint/PDF
 - **read**: Excel shows every sheet with cell refs and values; old .doc/.xls/.ppt readable

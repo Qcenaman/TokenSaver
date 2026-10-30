@@ -462,6 +462,10 @@ func toolRead(raw json.RawMessage) (string, []toolImage, error) {
 	if err := json.Unmarshal(raw, &a); err != nil {
 		return "", nil, err
 	}
+	if strings.ToLower(a.Mode) == "hash" {
+		s, err := readHash(a)
+		return s, nil, err
+	}
 	if strings.ToLower(a.Mode) == "image" {
 		return readImage(a)
 	}

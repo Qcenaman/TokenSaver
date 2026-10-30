@@ -402,9 +402,10 @@ func formatRun(s *JobState) string {
 func toolRun(raw json.RawMessage) (string, error) {
 	var a struct {
 		runArgs
-		Name   string `json:"name"`
-		Notify bool   `json:"notify"`
-		Wait   *int   `json:"wait_seconds"`
+		Summary bool   `json:"summary"`
+		Name    string `json:"name"`
+		Notify  bool   `json:"notify"`
+		Wait    *int   `json:"wait_seconds"`
 	}
 	if err := json.Unmarshal(raw, &a); err != nil {
 		return "", fmt.Errorf("bad arguments: %v", err)
@@ -419,13 +420,41 @@ func toolRun(raw json.RawMessage) (string, error) {
 	}
 	j.start()
 	wait := waitSecs(a.Wait, 30, 50)
+	finished := false
 	if wait > 0 {
 		select {
 		case <-j.done:
+			finished = true
 		case <-j.ready:
 		case <-time.After(time.Duration(wait) * time.Second):
 		}
 	}
 	s := j.snapshot()
-	return withNotify(formatState(&s), &s, a.Notify), nil
+	out := formatState(&s)
+	if a.Summary && finished {
+		out += runSummary(s.ID)
+	}
+	return withNotify(out, &s, a.Notify), nil
+}
+
+// runSummary has the local AI condense a long command output (the full log
+// stays on the PC) so the chat gets the gist instead of the whole log.
+func runSummary(id string) string {
+	p := outputPath(id)
+	b, err := os.ReadFile(p)
+	if err != nil || len(b) < 1500 {
+		return ""
+	}
+	dir := filepath.Join(appHome, "cache", "runs")
+	os.MkdirAll(dir, 0o755)
+	t := filepath.Join(dir, id+".txt")
+	if err := os.WriteFile(t, []byte(stripCtl(string(b))), 0o644); err != nil {
+		return ""
+	}
+	args, _ := json.Marshal(map[string]any{"action": "ask", "paths": []string{t}, "question": "This is the output of a command. Summarize what happened in a few lines: what succeeded, every error or warning with its cause and the exact file/line or name involved, and what is left to do. No filler.", "wait_seconds": 50})
+	s, err := toolLocalAI(args)
+	if err != nil || strings.TrimSpace(s) == "" {
+		return ""
+	}
+	return "\nSummary (local AI; full log in " + p + "):\n" + strings.TrimSpace(s) + "\n"
 }
