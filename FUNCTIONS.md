@@ -1,6 +1,6 @@
 # TokenSaver functions
 
-**Version 1.19.1**
+**Version 1.20.0**
 
 Windows PC helper that Claude hands work to, so the steps run on the PC instead of costing tokens in the chat. Runs as an MCP server in Claude desktop. Everything it keeps is in `D:\Claude Apps\TokenSaver`.
 
@@ -30,6 +30,10 @@ Windows PC helper that Claude hands work to, so the steps run on the PC instead 
 Also: tells Claude desktop to prefer TokenSaver over its built-in tools, undo for file jobs, job-end signals through GitHub (no polling), protected system folders; the terminal also reconnects Claude desktop and installs or removes the admin helper.
 
 ## What's new
+### 1.20.0
+- rag config keeps config.json.bak + last 10 dated copies (data\rag\config-backups)
+- rag update refuses to drop over half the index without confirm:true; dry run warns and names changed folders
+- rag config refuses temp-folder roots for the real index, or replacing every root at once, without confirm:true
 
 ### 1.19.1
 - Fix: system restart_claude failed with a WMI type mismatch (ShowWindow must be a uint16)
