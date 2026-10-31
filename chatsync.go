@@ -38,14 +38,17 @@ func openClaudeTab() (*ccClient, error) {
 		return nil, err
 	}
 	c := &ccClient{w: w}
-	for i := 0; i < 60; i++ {
-		if s, _ := w.eval("document.readyState", 3*time.Second); s == "complete" {
+	// A new tab starts on about:blank: wait until claude.ai itself has loaded (or a challenge
+	// page sits there), up to 30 s.
+	where := ""
+	for i := 0; i < 120; i++ {
+		where, _ = w.eval("location.host + ' ' + document.readyState + ' ' + document.title", 3*time.Second)
+		if strings.HasPrefix(where, "claude.ai complete") || isChallenge(where) {
 			break
 		}
 		time.Sleep(250 * time.Millisecond)
 	}
-	where, _ := w.eval("location.host + ' ' + document.title", 5*time.Second)
-	if !strings.HasPrefix(where, "claude.ai") || isChallenge(where) {
+	if !strings.HasPrefix(where, "claude.ai complete") || isChallenge(where) {
 		c.close()
 		return nil, errChatsNeedSignIn
 	}
