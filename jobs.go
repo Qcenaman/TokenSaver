@@ -16,16 +16,17 @@ import (
 )
 
 type JobSpec struct {
-	Name   string      `json:"name,omitempty"`
-	Kind   string      `json:"kind"`
-	Steps  []Step      `json:"steps,omitempty"`
-	DryRun bool        `json:"dry_run,omitempty"`
-	UndoOf string      `json:"undo_of,omitempty"`
-	AI     *AIRequest  `json:"ai,omitempty"`
-	Web    *WebRequest `json:"web,omitempty"`
-	Source string      `json:"source,omitempty"`
-	Run    *runArgs    `json:"run,omitempty"`
-	Rag    *ragRequest `json:"rag,omitempty"`
+	Name   string        `json:"name,omitempty"`
+	Kind   string        `json:"kind"`
+	Steps  []Step        `json:"steps,omitempty"`
+	DryRun bool          `json:"dry_run,omitempty"`
+	UndoOf string        `json:"undo_of,omitempty"`
+	AI     *AIRequest    `json:"ai,omitempty"`
+	Web    *WebRequest   `json:"web,omitempty"`
+	Source string        `json:"source,omitempty"`
+	Run    *runArgs      `json:"run,omitempty"`
+	Rag    *ragRequest   `json:"rag,omitempty"`
+	Chats  *chatsRequest `json:"chats,omitempty"`
 }
 
 type StepResult struct {
@@ -323,6 +324,8 @@ func (j *Job) run() {
 		fatal = runCommand(j)
 	case "rag":
 		fatal = runRagUpdate(j)
+	case "chats":
+		fatal = runChatsSync(j)
 	default:
 		fatal = fmt.Errorf("unknown job kind %q", j.Spec.Kind)
 	}
@@ -582,7 +585,7 @@ func formatState(s *JobState) string {
 	}
 	if s.Status == "running" {
 		b.WriteString("\nStill running; check again with job status id=" + s.ID)
-	} else if !s.DryRun && s.Kind != "ai" && s.Kind != "web" && s.Kind != "rag" && exists(filepath.Join(jobsDir(), s.ID, "log.tsv")) {
+	} else if !s.DryRun && s.Kind != "ai" && s.Kind != "web" && s.Kind != "rag" && s.Kind != "chats" && exists(filepath.Join(jobsDir(), s.ID, "log.tsv")) {
 		b.WriteString("\nLog: " + filepath.Join(jobsDir(), s.ID, "log.tsv"))
 	}
 	if s.Status == "interrupted" {

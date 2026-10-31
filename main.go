@@ -41,6 +41,8 @@ func main() {
 		consoleInstallLink()
 	case "phone":
 		os.Exit(phoneCLI(args[1:]))
+	case "chats":
+		os.Exit(chatsCLI(args[1:]))
 	case "version":
 		fmt.Println("tokensaver", appVersion)
 	case "restart-claude":
