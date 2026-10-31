@@ -4,16 +4,20 @@ package main
 // phone (AdbSaver) reaches it over the LAN, Tailscale, a forwarded public port or a cloudflared tunnel.
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -24,6 +28,12 @@ type linkConfig struct {
 	TunnelHostname string `json:"tunnel_hostname,omitempty"` // named tunnel: stable hostname
 	TunnelCreds    string `json:"tunnel_credentials,omitempty"`
 	PublicHost     string `json:"public_host,omitempty"` // DDNS name or IP (optional :port) forwarded on the router
+
+	// Explicit paths recorded by install-link (in the user's context), because the service runs
+	// as SYSTEM, whose PATH and profile folders are not the user's.
+	CloudflaredExe  string `json:"cloudflared_exe,omitempty"`
+	AdbExe          string `json:"adb_exe,omitempty"`
+	AndroidUserHome string `json:"android_user_home,omitempty"` // the user's .android folder (adb keys)
 }
 
 func linkCfgPath() string { return filepath.Join(appHome, "link.json") }
@@ -147,66 +157,266 @@ func linkHandler(c linkConfig) http.Handler {
 	return mux
 }
 
-// serveLink runs the HTTP front on all addresses until the process ends, and supervises the
-// cloudflared tunnel when it is wanted (link.json is re-read every 10 s, so phone tunnel start/stop
-// take effect without a restart).
+var (
+	errServeUpdated   = errors.New("the installed program changed")
+	errServeDuplicate = errors.New("another tokensaver serve is running")
+)
+
+// serveLink is "tokensaver serve": as a Windows service it runs under the service control
+// manager; from a console it runs until Ctrl+C.
 func serveLink() {
-	c := loadLinkCfg()
-	go aiEnsureWatcher()
-	h := linkHandler(c)
-	srv := &http.Server{Addr: net.JoinHostPort("0.0.0.0", fmt.Sprint(c.Port)), Handler: h, ReadHeaderTimeout: 10 * time.Second}
-	ln, err := net.Listen("tcp", srv.Addr)
-	if err != nil {
-		fmt.Println("cannot listen on", srv.Addr+":", err)
-		os.Exit(1)
+	if runServeService() {
+		return
 	}
-	fmt.Println("tokensaver link on", srv.Addr)
-	go srv.Serve(ln)
-	go adbKeepAlive()
-	saveTunnelState(tunnelState{State: "off"})
-	tun := &tunnelSupervisor{onURL: func(u string) {
-		if u == "" {
-			return
-		}
-		fmt.Println("tunnel", u)
-		go func() {
-			if err := pushRoutesToPhone(loadPhoneCfg(), nil); err != nil {
-				fmt.Println("could not push the tunnel URL to the phone (it will get it at its next report):", err)
-			}
-		}()
-	}}
-	for {
-		lc := loadLinkCfg()
-		if tunnelWanted(lc) {
-			tun.start(lc)
-		} else {
-			tun.stop()
-		}
-		time.Sleep(10 * time.Second)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+	if err := serveLinkCtx(ctx, false); err != nil && !errors.Is(err, errServeUpdated) {
+		os.Exit(1)
 	}
 }
 
-// consoleInstallLink registers "tokensaver serve" to start at sign-in (hidden) and prints the token.
-func consoleInstallLink() {
-	c := loadLinkCfg()
-	exe := installPath()
-	if !exists(exe) {
-		exe, _ = os.Executable()
-	}
-	if isWin {
-		tr := `"` + exe + `" serve`
-		if err := quietCmd("schtasks", "/Create", "/F", "/SC", "ONLOGON", "/TN", "TokenSaver Link", "/TR", tr, "/RL", "LIMITED").Run(); err != nil {
-			fmt.Println("Couldn't create the scheduled task:", err)
-		} else {
-			fmt.Println(`Registered "TokenSaver Link" to start at sign-in.`)
-			quietCmd("schtasks", "/Run", "/TN", "TokenSaver Link").Run()
+// serveLinkCtx runs the HTTP front on all IPv4 addresses and supervises the cloudflared tunnel
+// (link.json is re-read every 10 s, so phone tunnel start/stop take effect without a restart).
+// It returns nil when ctx ends, errServeUpdated when the installed program was replaced (the
+// service then exits with an error so Windows restarts it on the new program), or
+// errServeDuplicate when another serve holds the single-instance lock (console only).
+func serveLinkCtx(ctx context.Context, asService bool) error {
+	openServeLog(!asService)
+	serveLog("tokensaver %s serve starting (pid %d, service=%v)", appVersion, os.Getpid(), asService)
+	release, err := serveSingleInstance()
+	for err != nil {
+		if !asService {
+			serveLog("%v: %v", errServeDuplicate, err)
+			return errServeDuplicate
 		}
-	} else {
-		fmt.Println("Start it with:", exe, "serve")
+		serveLog("waiting for the other tokensaver serve to end: %v", err)
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-time.After(5 * time.Second):
+		}
+		release, err = serveSingleInstance()
 	}
-	fmt.Printf("Link port %d, token %s\n", c.Port, c.Token)
-	fmt.Println(firewallAllowLink(c.Port))
-	if cloudflaredExe() == "" {
-		fmt.Println("For the no-Tailscale route install cloudflared:", cloudflaredInstall)
+	defer release()
+
+	c := loadLinkCfg()
+	applyServeEnv(c)
+	go aiEnsureWatcher()
+	srv := &http.Server{Handler: linkHandler(c), ReadHeaderTimeout: 10 * time.Second}
+	go keepListening(ctx, srv, c.Port)
+	go adbKeepAlive()
+
+	if n := killTunnelOrphans(c.Port); n > 0 {
+		serveLog("killed %d leftover cloudflared process(es)", n)
+	}
+	saveTunnelState(tunnelState{State: "off"})
+	var push routePusher
+	tun := &tunnelSupervisor{onURL: func(u string) {
+		if u != "" {
+			serveLog("tunnel %s", u)
+		}
+		push.newURL(u)
+	}}
+	shutdown := func() {
+		tun.stop()
+		sctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		srv.Shutdown(sctx)
+		cancel()
+	}
+	watch := newExeWatch()
+	var running linkConfig
+	tick := time.NewTicker(10 * time.Second)
+	defer tick.Stop()
+	for {
+		lc := loadLinkCfg()
+		if tunnelWanted(lc) {
+			if tun.running() && tunnelKey(lc) != tunnelKey(running) {
+				tun.restart(lc)
+			} else {
+				tun.start(lc)
+			}
+			running = lc
+		} else {
+			tun.stop()
+		}
+		select {
+		case <-ctx.Done():
+			serveLog("stopping")
+			shutdown()
+			return nil
+		case <-tick.C:
+			if watch.changed() {
+				serveLog("the installed program was replaced; stopping so the new one starts")
+				shutdown()
+				return errServeUpdated
+			}
+		}
+	}
+}
+
+// tunnelKey is what makes a running tunnel outdated when it changes.
+func tunnelKey(c linkConfig) string {
+	return fmt.Sprint(c.Port, "|", c.TunnelHostname, "|", c.TunnelCreds, "|", c.CloudflaredExe)
+}
+
+// keepListening binds the link port and serves until ctx ends; a failed bind is logged with
+// its reason (and who holds the port) and retried, never silently given up.
+func keepListening(ctx context.Context, srv *http.Server, port int) {
+	addr := net.JoinHostPort("0.0.0.0", fmt.Sprint(port))
+	wait := time.Second
+	for ctx.Err() == nil {
+		ln, err := net.Listen("tcp4", addr)
+		if err != nil {
+			holder := ""
+			if pid := listenerPid(port); pid > 0 {
+				holder = fmt.Sprintf(" (port held by pid %d)", pid)
+			}
+			serveLog("cannot listen on %s: %v%s; retrying in %s", addr, err, holder, wait)
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(wait):
+			}
+			wait = min(wait*2, 30*time.Second)
+			continue
+		}
+		wait = time.Second
+		serveLog("link listening on %s", addr)
+		err = srv.Serve(ln)
+		if errors.Is(err, http.ErrServerClosed) {
+			return
+		}
+		serveLog("link server stopped: %v; listening again", err)
+	}
+}
+
+// exeWatch notices when the program this serve runs from is replaced (update / install).
+type exeWatch struct {
+	path     string
+	size     int64
+	mod      time.Time
+	seen     bool // a change was seen at the last check (it must be stable for two checks)
+	seenSize int64
+	seenMod  time.Time
+}
+
+func newExeWatch() *exeWatch {
+	p, _ := os.Executable()
+	if ip := installPath(); exists(ip) && samePath(p, ip) {
+		p = ip
+	}
+	w := &exeWatch{path: p}
+	if fi, err := os.Stat(p); err == nil {
+		w.size, w.mod = fi.Size(), fi.ModTime()
+	}
+	return w
+}
+
+func (w *exeWatch) changed() bool {
+	if w.path == "" || w.mod.IsZero() {
+		return false
+	}
+	fi, err := os.Stat(w.path)
+	if err != nil {
+		w.seen = false // mid-swap: the file is briefly missing
+		return false
+	}
+	if fi.Size() == w.size && fi.ModTime().Equal(w.mod) {
+		w.seen = false
+		return false
+	}
+	if w.seen && fi.Size() == w.seenSize && fi.ModTime().Equal(w.seenMod) {
+		return true
+	}
+	w.seen, w.seenSize, w.seenMod = true, fi.Size(), fi.ModTime()
+	return false
+}
+
+// applyServeEnv points adb at the user's own keys (recorded by install-link), so a serve running
+// as SYSTEM uses the key the phone already trusts instead of a new one that would need approval.
+func applyServeEnv(c linkConfig) {
+	if c.AndroidUserHome == "" || !exists(c.AndroidUserHome) {
+		return
+	}
+	os.Setenv("ANDROID_USER_HOME", c.AndroidUserHome)
+	if k := filepath.Join(c.AndroidUserHome, "adbkey"); exists(k) {
+		os.Setenv("ADB_VENDOR_KEYS", k)
+	}
+}
+
+// --- route push -------------------------------------------------------------------------------
+
+// routePusher sends each new tunnel URL to the phone and keeps retrying (LAN, then Tailscale)
+// until the phone has it or the URL changes again. After a reboot with nobody signed in this is
+// how the phone learns the new quick-tunnel URL; the phone's own reports get it too.
+type routePusher struct {
+	mu  sync.Mutex
+	gen int
+}
+
+func (p *routePusher) newURL(u string) {
+	p.mu.Lock()
+	p.gen++
+	gen := p.gen
+	p.mu.Unlock()
+	if u == "" {
+		return
+	}
+	go func() {
+		wait := 15 * time.Second
+		for attempt := 1; ; attempt++ {
+			p.mu.Lock()
+			stale := gen != p.gen
+			p.mu.Unlock()
+			if stale || currentTunnelURL() != u {
+				return
+			}
+			err := pushRoutesToPhone(loadPhoneCfg(), nil)
+			if err == nil {
+				serveLog("tunnel URL sent to the phone")
+				return
+			}
+			if attempt == 1 || attempt%10 == 0 {
+				serveLog("could not send the tunnel URL to the phone yet (retrying; it also gets it at its next report): %v", err)
+			}
+			time.Sleep(wait)
+			wait = min(wait*2, 5*time.Minute)
+		}
+	}()
+}
+
+// --- log --------------------------------------------------------------------------------------
+
+var (
+	serveLogMu  sync.Mutex
+	serveLogOut io.Writer = io.Discard
+	serveEcho             = true
+)
+
+func serveLogPath() string { return filepath.Join(appHome, "logs", "serve.log") }
+
+// openServeLog appends to data\logs\serve.log (kept under 2 MB: the old part goes to serve.log.1).
+func openServeLog(echo bool) {
+	serveLogMu.Lock()
+	defer serveLogMu.Unlock()
+	serveEcho = echo
+	p := serveLogPath()
+	os.MkdirAll(filepath.Dir(p), 0o755)
+	if fi, err := os.Stat(p); err == nil && fi.Size() > 2<<20 {
+		os.Remove(p + ".1")
+		os.Rename(p, p+".1")
+	}
+	if f, err := os.OpenFile(p, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644); err == nil {
+		serveLogOut = f
+	}
+}
+
+func serveLog(format string, a ...any) {
+	line := time.Now().Format("2006-01-02 15:04:05 ") + fmt.Sprintf(format, a...) + "\n"
+	serveLogMu.Lock()
+	defer serveLogMu.Unlock()
+	serveLogOut.Write([]byte(line))
+	if serveEcho {
+		os.Stdout.WriteString(line[20:])
 	}
 }

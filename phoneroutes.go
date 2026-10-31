@@ -17,7 +17,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -66,6 +65,9 @@ func currentTunnelURL() string {
 }
 
 func cloudflaredExe() string {
+	if p := loadLinkCfg().CloudflaredExe; p != "" && exists(p) {
+		return p
+	}
 	if p, err := lookPath("cloudflared"); err == nil {
 		return p
 	}
@@ -99,127 +101,6 @@ func tunnelWanted(c linkConfig) bool {
 		return true
 	}
 	return cloudflaredExe() != ""
-}
-
-// tunnelSupervisor keeps one cloudflared child running while enabled and records its URL.
-type tunnelSupervisor struct {
-	mu      sync.Mutex
-	cancel  context.CancelFunc
-	running bool
-	onURL   func(string) // called when the advertised URL changes (new URL or "")
-}
-
-func (t *tunnelSupervisor) start(c linkConfig) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	if t.running {
-		return
-	}
-	exe := cloudflaredExe()
-	if exe == "" {
-		saveTunnelState(tunnelState{State: "missing", Error: "cloudflared not installed: " + cloudflaredInstall})
-		return
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	t.cancel, t.running = cancel, true
-	go t.loop(ctx, exe, c)
-}
-
-func (t *tunnelSupervisor) stop() {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	if !t.running {
-		return
-	}
-	t.cancel()
-	t.running = false
-	saveTunnelState(tunnelState{State: "off"})
-	if t.onURL != nil {
-		t.onURL("")
-	}
-}
-
-func (t *tunnelSupervisor) loop(ctx context.Context, exe string, c linkConfig) {
-	backoff := 2 * time.Second
-	for ctx.Err() == nil {
-		started := time.Now()
-		err := t.runOnce(ctx, exe, c)
-		if ctx.Err() != nil {
-			return
-		}
-		msg := "cloudflared exited"
-		if err != nil {
-			msg = err.Error()
-		}
-		saveTunnelState(tunnelState{State: "failed", Error: msg})
-		if t.onURL != nil {
-			t.onURL("")
-		}
-		if time.Since(started) > time.Minute {
-			backoff = 2 * time.Second
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(backoff):
-		}
-		backoff = min(backoff*2, 2*time.Minute)
-	}
-}
-
-// runOnce runs one cloudflared process until it exits; the URL is published as soon as it is known.
-func (t *tunnelSupervisor) runOnce(ctx context.Context, exe string, c linkConfig) error {
-	local := fmt.Sprintf("http://127.0.0.1:%d", c.Port)
-	var args []string
-	named := c.TunnelHostname != "" && c.TunnelCreds != "" && exists(c.TunnelCreds)
-	if named {
-		args = []string{"tunnel", "--no-autoupdate", "--credentials-file", c.TunnelCreds, "--url", local, "run", tunnelIDFromCreds(c.TunnelCreds)}
-	} else {
-		args = []string{"tunnel", "--no-autoupdate", "--url", local}
-	}
-	cmd := exec.CommandContext(ctx, exe, args...)
-	hideWindow(cmd)
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		return err
-	}
-	cmd.Stdout = io.Discard
-	if err := cmd.Start(); err != nil {
-		return err
-	}
-	saveTunnelState(tunnelState{State: "starting", PID: cmd.Process.Pid})
-	publish := func(u string) {
-		saveTunnelState(tunnelState{State: "up", URL: u, PID: cmd.Process.Pid})
-		if t.onURL != nil {
-			t.onURL(u)
-		}
-	}
-	if named {
-		publish("https://" + c.TunnelHostname)
-	}
-	go func() {
-		buf := make([]byte, 4096)
-		var line []byte
-		for {
-			n, err := stderr.Read(buf)
-			for _, b := range buf[:n] {
-				if b == '\n' {
-					if !named {
-						if u := parseCloudflaredURL(string(line)); u != "" && u != currentTunnelURL() {
-							publish(u)
-						}
-					}
-					line = line[:0]
-				} else if len(line) < 4096 {
-					line = append(line, b)
-				}
-			}
-			if err != nil {
-				return
-			}
-		}
-	}()
-	return cmd.Wait()
 }
 
 func tunnelIDFromCreds(p string) string {

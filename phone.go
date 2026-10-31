@@ -180,6 +180,9 @@ func phoneCall(c phoneConfig, base, tool string, args json.RawMessage) (string, 
 // --- adb side -----------------------------------------------------------------------------
 
 func adbExe() string {
+	if p := loadLinkCfg().AdbExe; p != "" && exists(p) {
+		return p
+	}
 	if p, err := lookPath("adb"); err == nil {
 		return p
 	}
@@ -431,7 +434,7 @@ func phoneTunnel(mode string) string {
 		lc.Tunnel = "cloudflared"
 		writeJSONAtomic(linkCfgPath(), lc)
 		if !phoneHealth(fmt.Sprintf("http://127.0.0.1:%d", lc.Port), time.Second) {
-			return "tunnel enabled, but tokensaver serve is not running (tokensaver install-link registers it at sign-in)."
+			return "tunnel enabled, but tokensaver serve is not running (tokensaver install-link installs it as a boot-time service).\n" + linkStatusReport()
 		}
 		for i := 0; i < 40; i++ {
 			time.Sleep(time.Second)
@@ -463,7 +466,7 @@ func phoneTunnel(mode string) string {
 	if lc.TunnelHostname != "" {
 		s += "\nnamed tunnel: " + lc.TunnelHostname
 	}
-	return s
+	return s + "\n" + linkStatusReport()
 }
 
 // phonePair reads the engine's token over adb (the phone must be on the LAN), records the LAN and
