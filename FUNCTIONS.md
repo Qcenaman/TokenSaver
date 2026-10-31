@@ -1,6 +1,6 @@
 # TokenSaver functions
 
-**Version 1.21.0**
+**Version 1.22.0**
 
 Windows PC helper that Claude hands work to, so the steps run on the PC instead of costing tokens in the chat. Runs as an MCP server in Claude desktop. Everything it keeps is in `D:\Claude Apps\TokenSaver`.
 
@@ -30,6 +30,13 @@ Windows PC helper that Claude hands work to, so the steps run on the PC instead 
 Also: tells Claude desktop to prefer TokenSaver over its built-in tools, undo for file jobs, job-end signals through GitHub (no polling), protected system folders; the terminal also reconnects Claude desktop and installs or removes the admin helper.
 
 ## What's new
+### 1.22.0
+- Local AI server is now shared: a server that was already running (e.g. remoteai's) is marked external and never stopped by TokenSaver
+- No more instant shutdown: a server TokenSaver started stays up until idle for ai_idle_minutes (default 15); any request from any app resets the timer
+- Never stops a busy server: checks llama.cpp /slots (and /metrics) before any stop
+- keep_running pin (local_ai models keep_running:true) blocks all auto-stops; models shows running, owner, pinned, busy, idle minutes left
+- Safe manual stop: local_ai stop / job cancel id local_ai refuse while busy unless confirmed:true
+- Tests for external, busy, idle-timeout and pin cases run on every push
 ### 1.21.0
 - Phone adb now goes to <tailscale-ip>:5555 first (AdbSaver's fixed TCP port); LAN wireless debugging/mDNS is only a fallback
 - serve keeps that adb link connected every 30 s (drops offline entries, reconnects)
