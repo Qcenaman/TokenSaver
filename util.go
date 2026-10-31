@@ -55,6 +55,11 @@ func initApp() {
 	for _, d := range []string{"jobs", "saved"} {
 		os.MkdirAll(filepath.Join(appHome, d), 0o755)
 	}
+	// A go.mod of its own makes Go treat the data folder as another module, so
+	// "go test ./..." in the repo skips the .go backup copies kept under jobs.
+	if gm := filepath.Join(appHome, "go.mod"); !exists(gm) {
+		os.WriteFile(gm, []byte("module tokensaver-data\n"), 0o644)
+	}
 	if b, err := os.ReadFile(filepath.Join(appHome, "config.json")); err == nil {
 		json.Unmarshal(b, &cfg)
 	}
