@@ -278,11 +278,16 @@ func ckTarget(a *checkArgs) (root, single, label string, notes []string, err err
 		if a.Path == "" {
 			return "", "", "", nil, errors.New("path is required: a file or folder on the phone, e.g. /sdcard/Projects/app")
 		}
-		adb, err := exec.LookPath("adb")
-		if err != nil {
+		if !adbFound() {
 			return "", "", "", nil, errors.New("adb not found on the PC (install Android platform-tools)")
 		}
+		adb := adbExe()
 		var pre []string
+		if a.Device == "" { // the phone link's route (Tailscale tcp first), so stale mDNS duplicates are never picked
+			if s, err := adbSerial(loadPhoneCfg()); err == nil {
+				pre = []string{"-s", s}
+			}
+		}
 		if a.Device != "" {
 			ckRun(checkerDir(), 30*time.Second, adb, "connect", a.Device)
 			pre = []string{"-s", a.Device}

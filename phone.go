@@ -2,6 +2,8 @@ package main
 
 // phone: reach the AdbSaver engine on the user's Android phone and pass tool calls through.
 // Route order: LAN (Wi-Fi) → Tailscale → adb fallback (basic shell/ui/screen) when the engine is down.
+// adb itself goes to the phone's fixed classic-TCP port over Tailscale (<tailscale-ip>:5555, kept on by
+// AdbSaver and kept connected by serve every 30 s); LAN Wireless debugging / mDNS is only a fallback.
 // The phone reaches this PC over lan → tailscale → public_host → cloudflared tunnel (see phoneroutes.go).
 
 import (
@@ -27,7 +29,8 @@ type phoneConfig struct {
 	TSIP      string `json:"tailscale_ip,omitempty"`
 	Port      int    `json:"port,omitempty"`
 	Token     string `json:"token,omitempty"`
-	AdbSerial string `json:"adb_serial,omitempty"` // last known ip:port for adb connect
+	AdbSerial string `json:"adb_serial,omitempty"` // last known LAN Wireless-debugging ip:port (fallback)
+	AdbTCP    string `json:"adb_tcp,omitempty"`    // <tailscale-ip>:5555 reported by the phone (primary adb serial)
 	Package   string `json:"package,omitempty"`
 	// filled by the phone's /phone/report
 	LastReport  time.Time `json:"last_report,omitempty"`
@@ -180,59 +183,130 @@ func adbExe() string {
 	if p, err := lookPath("adb"); err == nil {
 		return p
 	}
+	// Claude desktop and sign-in tasks can start without the user's latest PATH (winget puts adb there).
+	if la := os.Getenv("LOCALAPPDATA"); la != "" {
+		cands := []string{filepath.Join(la, "Microsoft", "WinGet", "Links", "adb.exe"), filepath.Join(la, "Android", "Sdk", "platform-tools", "adb.exe")}
+		if m, _ := filepath.Glob(filepath.Join(la, "Microsoft", "WinGet", "Packages", "Google.PlatformTools*", "platform-tools", "adb.exe")); len(m) > 0 {
+			cands = append(cands, m...)
+		}
+		for _, p := range cands {
+			if _, err := os.Stat(p); err == nil {
+				return p
+			}
+		}
+	}
 	return "adb"
 }
 
-var adbSerialRe = regexp.MustCompile(`(?m)^(\S+)\s+device\b`)
+// adbFound reports whether adb is installed at all.
+func adbFound() bool {
+	if p := adbExe(); p != "adb" {
+		return true
+	}
+	_, err := lookPath("adb")
+	return err == nil
+}
 
-// adbSerial returns a serial adb currently lists as online (prefer ip:port), connecting via mdns or the last ip:port if none.
-func adbSerial(c phoneConfig) (string, error) {
-	out, _ := runQuiet(8*time.Second, adbExe(), "devices")
-	var ipSerial, any string
-	for _, m := range adbSerialRe.FindAllStringSubmatch(out, -1) {
-		s := m[1]
-		if any == "" {
-			any = s
+// adbRun runs adb with a timeout (a variable so tests can fake it).
+var adbRun = func(timeout time.Duration, args ...string) (string, error) {
+	return runQuiet(timeout, adbExe(), args...)
+}
+
+var adbDevRe = regexp.MustCompile(`(?m)^(\S+)\s+(device|offline|unauthorized|authorizing|connecting|no permissions)\b`)
+
+// adbStates maps each serial in `adb devices` output to its state.
+func adbStates(out string) map[string]string {
+	m := map[string]string{}
+	for _, x := range adbDevRe.FindAllStringSubmatch(out, -1) {
+		m[x[1]] = x[2]
+	}
+	return m
+}
+
+// adbTCPTarget is the phone's fixed classic-TCP adb address over Tailscale: the AdbTcp it reports,
+// else the stored Tailscale IP on port 5555. AdbSaver keeps adbd listening there, even on mobile data.
+func adbTCPTarget(c phoneConfig) string {
+	if c.AdbTCP != "" {
+		return c.AdbTCP
+	}
+	if c.TSIP != "" {
+		return net.JoinHostPort(c.TSIP, "5555")
+	}
+	return ""
+}
+
+// adbEnsure makes sure adb lists serial as "device": an "offline" entry is disconnected first, then it connects.
+func adbEnsure(serial string) bool {
+	if serial == "" {
+		return false
+	}
+	out, _ := adbRun(8*time.Second, "devices")
+	switch adbStates(out)[serial] {
+	case "device":
+		return true
+	case "offline":
+		adbRun(5*time.Second, "disconnect", serial)
+	}
+	adbRun(10*time.Second, "connect", serial)
+	out, _ = adbRun(8*time.Second, "devices")
+	return adbStates(out)[serial] == "device"
+}
+
+// adbRoute returns the adb serial to use and how it is reached: the Tailscale TCP address first, then
+// USB, then the LAN Wireless-debugging address the phone last reported, then mDNS (whose list keeps
+// stale _adb-tls-connect duplicates, so it is only the last resort).
+func adbRoute(c phoneConfig) (serial, via string, err error) {
+	if t := adbTCPTarget(c); t != "" && adbEnsure(t) {
+		return t, "tailscale tcp", nil
+	}
+	out, _ := adbRun(8*time.Second, "devices")
+	st := adbStates(out)
+	for s, state := range st {
+		if state == "device" && !strings.Contains(s, ":") && !strings.Contains(s, "._adb") {
+			return s, "usb", nil
 		}
-		if strings.Contains(s, ":") && ipSerial == "" {
-			ipSerial = s
+	}
+	if c.AdbSerial != "" && adbEnsure(c.AdbSerial) {
+		return c.AdbSerial, "lan wireless debugging", nil
+	}
+	for s, state := range st {
+		if state == "device" {
+			return s, "lan wireless debugging", nil
 		}
 	}
-	if ipSerial != "" {
-		return ipSerial, nil
-	}
-	if any != "" {
-		return any, nil
-	}
-	// Try to connect: the address the phone last reported (its live Wireless-debugging port) first,
-	// then mDNS, whose list keeps stale _adb-tls-connect entries from earlier sessions.
-	tried := map[string]bool{}
-	connect := func(addr string) bool {
-		if addr == "" || tried[addr] {
-			return false
-		}
-		tried[addr] = true
-		o, _ := runQuiet(10*time.Second, adbExe(), "connect", addr)
-		return strings.Contains(o, "connected") && !strings.Contains(o, "cannot") && !strings.Contains(o, "failed")
-	}
-	if connect(c.AdbSerial) {
-		return c.AdbSerial, nil
-	}
-	if out, _ := runQuiet(6*time.Second, adbExe(), "mdns", "services"); out != "" {
+	if out, _ := adbRun(6*time.Second, "mdns", "services"); out != "" {
 		for _, line := range strings.Split(out, "\n") {
 			if strings.Contains(line, "_adb-tls-connect") {
 				f := strings.Fields(line)
-				if len(f) >= 3 && connect(f[len(f)-1]) {
-					return f[len(f)-1], nil
+				if len(f) >= 3 && adbEnsure(f[len(f)-1]) {
+					return f[len(f)-1], "lan mdns", nil
 				}
 			}
 		}
 	}
-	return "", errors.New("no phone reachable over adb (not on the LAN, or wireless debugging off)")
+	return "", "", errors.New("no phone reachable over adb (Tailscale tcp " + orDash(adbTCPTarget(c)) + " not answering, not on the LAN, or wireless debugging off)")
+}
+
+// adbSerial returns the serial every adb call uses (-s), so stale mDNS duplicates are never picked.
+func adbSerial(c phoneConfig) (string, error) {
+	s, _, err := adbRoute(c)
+	return s, err
 }
 
 func adbShell(serial string, timeout time.Duration, cmd string) (string, error) {
-	return runQuiet(timeout, adbExe(), "-s", serial, "shell", cmd)
+	return adbRun(timeout, "-s", serial, "shell", cmd)
+}
+
+// adbKeepAlive runs inside serve: every 30 s it reconnects the phone's Tailscale TCP adb address when
+// adb no longer lists it as a device, so the link survives Wi-Fi drops and adb server restarts.
+func adbKeepAlive() {
+	if !adbFound() {
+		return
+	}
+	for {
+		adbEnsure(adbTCPTarget(loadPhoneCfg()))
+		time.Sleep(30 * time.Second)
+	}
 }
 
 // --- tool ---------------------------------------------------------------------------------
@@ -337,10 +411,10 @@ func phoneStatus(c phoneConfig) string {
 	} else {
 		sb.WriteString("token: set\n")
 	}
-	if s, err := adbSerial(c); err == nil {
-		sb.WriteString("adb: " + s + "\n")
+	if s, via, err := adbRoute(c); err == nil {
+		sb.WriteString("adb: " + s + " (" + via + ")\n")
 	} else {
-		sb.WriteString("adb: none\n")
+		sb.WriteString("adb: none — " + err.Error() + "\n")
 	}
 	sb.WriteString(pcRoutesStatus())
 	return strings.TrimSpace(sb.String())
@@ -395,7 +469,7 @@ func phoneTunnel(mode string) string {
 // phonePair reads the engine's token over adb (the phone must be on the LAN), records the LAN and
 // Tailscale addresses, and checks the engine answers.
 func phonePair(c phoneConfig) (string, []toolImage, error) {
-	serial, err := adbSerial(c)
+	serial, via, err := adbRoute(c)
 	if err != nil {
 		return "", nil, err
 	}
@@ -405,7 +479,7 @@ func phonePair(c phoneConfig) (string, []toolImage, error) {
 		return "", nil, fmt.Errorf("could not read the token from the app (%q): is AdbSaver installed and started once?", tok)
 	}
 	c.Token = tok
-	if strings.Contains(serial, ":") {
+	if strings.HasPrefix(via, "lan") && strings.Contains(serial, ":") {
 		c.AdbSerial = serial
 		c.LanIP = serial[:strings.Index(serial, ":")]
 	}
@@ -548,7 +622,7 @@ func phoneAdbFallback(c phoneConfig, tool string, raw json.RawMessage) (string, 
 		}
 		return "", nil, errors.New("ui action not available over adb fallback: " + str("action"))
 	case "screen":
-		out, err := runQuiet(30*time.Second, adbExe(), "-s", serial, "exec-out", "screencap", "-p")
+		out, err := adbRun(30*time.Second, "-s", serial, "exec-out", "screencap", "-p")
 		if err != nil || len(out) < 100 {
 			return "", nil, errors.New("screencap failed over adb")
 		}

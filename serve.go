@@ -116,6 +116,7 @@ func linkHandler(c linkConfig) http.Handler {
 		}
 		var rep struct {
 			LanIP, TailscaleIP, AdbSerial, Battery, Network string
+			AdbTcp                                          string          // <tailscale-ip>:5555, AdbSaver's fixed classic-TCP adb port
 			AdbPort                                         json.RawMessage // service.adb.tls.port: the live Wireless-debugging port
 		}
 		body, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))
@@ -129,6 +130,9 @@ func linkHandler(c linkConfig) http.Handler {
 		}
 		if rep.AdbSerial != "" {
 			pc.AdbSerial = rep.AdbSerial
+		}
+		if rep.AdbTcp != "" {
+			pc.AdbTCP = rep.AdbTcp
 		}
 		if port := strings.Trim(string(rep.AdbPort), `"`); port != "" && port != "0" && port != "null" && pc.LanIP != "" {
 			pc.AdbSerial = net.JoinHostPort(pc.LanIP, port)
@@ -157,6 +161,7 @@ func serveLink() {
 	}
 	fmt.Println("tokensaver link on", srv.Addr)
 	go srv.Serve(ln)
+	go adbKeepAlive()
 	saveTunnelState(tunnelState{State: "off"})
 	tun := &tunnelSupervisor{onURL: func(u string) {
 		if u == "" {
