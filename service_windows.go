@@ -116,6 +116,23 @@ func linkServiceState() (state string, auto bool, account string, installed bool
 	return state, auto, account, true
 }
 
+// linkListenerPid finds who listens on port. netstat leaves out listening sockets whose TCP
+// state Windows reports as 0 (some network filter drivers do that to serve's socket, which is
+// why 8766 looked "not listening" while it answered), so the table is read without a state filter.
+func linkListenerPid(port int) int {
+	if pid := listenerPid(port); pid > 0 {
+		return pid
+	}
+	out, err := runQuiet(15*time.Second, "powershell", "-NoProfile", "-NonInteractive", "-Command",
+		fmt.Sprintf("Get-NetTCPConnection -LocalPort %d -ErrorAction SilentlyContinue | Where-Object RemotePort -eq 0 | Select-Object -First 1 -ExpandProperty OwningProcess", port))
+	if err != nil {
+		return 0
+	}
+	var pid int
+	fmt.Sscan(strings.TrimSpace(out), &pid)
+	return pid
+}
+
 func oldLinkTaskPresent() bool {
 	return quietCmd("schtasks", "/Query", "/TN", oldLinkTaskName).Run() == nil
 }
@@ -157,13 +174,13 @@ func linkStatusReport() string {
 		flag = " — should be 1"
 	}
 	fmt.Fprintf(&sb, "cloudflared processes: %d %v%s\n", len(pids), pids, flag)
-	if pid := listenerPid(lc.Port); pid > 0 {
-		h := "answers /health"
-		if !phoneHealth(fmt.Sprintf("http://127.0.0.1:%d", lc.Port), 2*time.Second) {
-			h = "does NOT answer /health"
-		}
-		fmt.Fprintf(&sb, "port %d: listening (pid %d), %s\n", lc.Port, pid, h)
-	} else {
+	healthy := phoneHealth(fmt.Sprintf("http://127.0.0.1:%d", lc.Port), 2*time.Second)
+	switch pid := linkListenerPid(lc.Port); {
+	case healthy:
+		fmt.Fprintf(&sb, "port %d: listening (pid %d), answers /health\n", lc.Port, pid)
+	case pid > 0:
+		fmt.Fprintf(&sb, "port %d: bound by pid %d but does NOT answer /health (see %s)\n", lc.Port, pid, serveLogPath())
+	default:
 		fmt.Fprintf(&sb, "port %d: NOT listening (see %s)\n", lc.Port, serveLogPath())
 	}
 	var fw []string
