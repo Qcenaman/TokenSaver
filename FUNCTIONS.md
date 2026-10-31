@@ -1,6 +1,6 @@
 # TokenSaver functions
 
-**Version 1.23.0**
+**Version 1.24.0**
 
 Windows PC helper that Claude hands work to, so the steps run on the PC instead of costing tokens in the chat. Runs as an MCP server in Claude desktop. Everything it keeps is in `D:\Claude Apps\TokenSaver`.
 
@@ -30,6 +30,12 @@ Windows PC helper that Claude hands work to, so the steps run on the PC instead 
 Also: tells Claude desktop to prefer TokenSaver over its built-in tools, undo for file jobs, job-end signals through GitHub (no polling), protected system folders; the terminal also reconnects Claude desktop and installs or removes the admin helper.
 
 ## What's new
+### 1.24.0
+- New chats tool: saves every claude.ai chat (all projects + regular chats) to D:\Claude Chats as Markdown, one file per chat, through TokenSaver's signed-in browser; the session cookie never leaves the browser and chat text never passes through Claude
+- Only changed chats are re-fetched (index.json keeps id, path, updated_at); renamed chats move to their new file name
+- After each sync the folder is re-indexed in RAG (added as a root once); chats search queries it
+- Sign-in or Cloudflare walls stop the sync with 'needs sign-in' instead of being worked around
+- Scheduled task TokenSaver\Chats Sync runs hidden every 6 hours; Sync Claude chats.cmd in the app folder runs it by hand
 ### 1.23.0
 - Phone link (tokensaver serve) now runs as the Windows service TokenSaverLink: starts at boot as LocalSystem, before anyone signs in; install-link sets it up through the elevated helper and removes the old sign-in task
 - Only one cloudflared: it lives in a kill-on-close job object, leftovers for port 8766 are killed, serve holds a single-instance lock, restarts stop the old process first
