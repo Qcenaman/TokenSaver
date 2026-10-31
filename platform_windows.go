@@ -281,9 +281,16 @@ func (p *aiProc) exited() bool {
 func startScript(script string) (*aiProc, error) {
 	cmd := exec.Command("cmd.exe", "/c", script)
 	cmd.Dir = filepath.Dir(script)
-	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: 0x00000010} // CREATE_NEW_CONSOLE
+	// CREATE_NEW_CONSOLE, plus CREATE_BREAKAWAY_FROM_JOB where allowed, so the shared
+	// server isn't closed together with Claude when Claude quits.
+	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: 0x00000010 | 0x01000000}
 	if err := cmd.Start(); err != nil {
-		return nil, err
+		cmd = exec.Command("cmd.exe", "/c", script)
+		cmd.Dir = filepath.Dir(script)
+		cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: 0x00000010}
+		if err := cmd.Start(); err != nil {
+			return nil, err
+		}
 	}
 	p := &aiProc{cmd: cmd, done: make(chan struct{})}
 	go func() { cmd.Wait(); close(p.done) }()

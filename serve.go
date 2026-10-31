@@ -152,6 +152,7 @@ func linkHandler(c linkConfig) http.Handler {
 // take effect without a restart).
 func serveLink() {
 	c := loadLinkCfg()
+	go aiEnsureWatcher()
 	h := linkHandler(c)
 	srv := &http.Server{Addr: net.JoinHostPort("0.0.0.0", fmt.Sprint(c.Port)), Handler: h, ReadHeaderTimeout: 10 * time.Second}
 	ln, err := net.Listen("tcp", srv.Addr)

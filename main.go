@@ -33,6 +33,8 @@ func main() {
 		consoleInstallHelper()
 	case "uninstall-helper":
 		consoleUninstallHelper()
+	case "ai-watch":
+		os.Exit(aiWatchMain())
 	case "serve":
 		serveLink()
 	case "install-link":

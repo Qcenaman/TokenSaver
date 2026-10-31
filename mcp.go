@@ -23,6 +23,7 @@ const serverInstructions = `TokenSaver works on this Windows PC and returns shor
 func serveMCP(in io.Reader, out io.Writer) {
 	initUpdateNotice()
 	resumeNotifier()
+	go aiEnsureWatcher()
 	sc := bufio.NewScanner(in)
 	sc.Buffer(make([]byte, 1<<20), 64<<20)
 	var wmu sync.Mutex
@@ -215,10 +216,11 @@ func toolRunJob(raw json.RawMessage) (string, error) {
 
 func toolJob(raw json.RawMessage) (string, error) {
 	var a struct {
-		Action string `json:"action"`
-		ID     string `json:"id"`
-		DryRun bool   `json:"dry_run"`
-		Wait   *int   `json:"wait_seconds"`
+		Action    string `json:"action"`
+		ID        string `json:"id"`
+		DryRun    bool   `json:"dry_run"`
+		Wait      *int   `json:"wait_seconds"`
+		Confirmed bool   `json:"confirmed"`
 	}
 	if err := json.Unmarshal(raw, &a); err != nil {
 		return "", err
@@ -227,6 +229,10 @@ func toolJob(raw json.RawMessage) (string, error) {
 	case "list":
 		return listJobs(15), nil
 	case "cancel":
+		switch strings.ToLower(strings.TrimSpace(a.ID)) {
+		case "local_ai", "ai-server", "ai_server", "llama":
+			return aiSafeStop(a.Confirmed), nil
+		}
 		id, err := resolveJobID(a.ID)
 		if err != nil {
 			return "", err
@@ -329,9 +335,12 @@ func toolSaved(raw json.RawMessage) (string, error) {
 func toolLocalAI(raw json.RawMessage) (string, error) {
 	var a struct {
 		AIRequest
-		DryRun bool `json:"dry_run"`
-		Notify bool `json:"notify"`
-		Wait   *int `json:"wait_seconds"`
+		DryRun      bool  `json:"dry_run"`
+		Notify      bool  `json:"notify"`
+		Wait        *int  `json:"wait_seconds"`
+		KeepRunning *bool `json:"keep_running"`
+		IdleMinutes *int  `json:"idle_minutes"`
+		Confirmed   bool  `json:"confirmed"`
 	}
 	if err := json.Unmarshal(raw, &a); err != nil {
 		return "", err
@@ -340,7 +349,14 @@ func toolLocalAI(raw json.RawMessage) (string, error) {
 	req.Action = strings.ToLower(req.Action)
 	switch req.Action {
 	case "models":
+		if a.KeepRunning != nil || a.IdleMinutes != nil {
+			if err := setAIConfig(a.KeepRunning, a.IdleMinutes); err != nil {
+				return "", err
+			}
+		}
 		return aiModelsText(), nil
+	case "stop":
+		return aiSafeStop(a.Confirmed), nil
 	case "ask":
 		if req.Question == "" {
 			return "", errors.New("ask needs question")
@@ -378,9 +394,9 @@ var toolDefs = []json.RawMessage{
 	json.RawMessage(`{"name":"find","description":"Find files by name, size, date and/or text inside (text, code, Office, PDF) in many folders at once; returns matches with up to lines (3) matching lines per file and a count of the rest. all:true also searches cache folders.","inputSchema":{"type":"object","properties":{"path":{"type":"array","items":{"type":"string"}},"name":{"type":"string"},"text":{"type":"string"},"regex":{"type":"boolean"},"case_sensitive":{"type":"boolean"},"include":{"type":"string"},"exclude":{"type":"string"},"min_size":{"type":"string"},"max_size":{"type":"string"},"newer_than":{"type":"string"},"older_than":{"type":"string"},"recursive":{"type":"boolean"},"limit":{"type":"integer"},"lines":{"type":"integer"},"all":{"type":"boolean"}},"required":["path"]}}`),
 	json.RawMessage(`{"name":"read","description":"Read part of a file: info, head, tail, lines, grep, text (Office/HTML/PDF as text; scans and pictures via OCR). pages: PDF pages, e.g. 3-5. image: small copy of a picture or PDF page (max_px, default 800). values: values of keys in JSON files plus strings ending in ext (e.g. a ComfyUI workflow's nodes and models). changes:true: only lines new or gone since your last changes read. hash: sha256/sha1/md5 of the file; pattern = expected hash to verify (MATCH/MISMATCH).","inputSchema":{"type":"object","properties":{"path":{"type":"string"},"mode":{"type":"string","enum":["info","head","tail","lines","grep","text","image","values","hash"]},"lines":{"type":"integer"},"from_line":{"type":"integer"},"pattern":{"type":"string"},"regex":{"type":"boolean"},"context":{"type":"integer"},"max_chars":{"type":"integer"},"keys":{"type":"array","items":{"type":"string"}},"ext":{"type":"string"},"pages":{"type":"string"},"max_px":{"type":"integer"},"changes":{"type":"boolean"}},"required":["path"]}}`),
 	json.RawMessage(`{"name":"run_job","description":"File operations as a background job, any number of files; steps run in order. Ops: copy/move {from,to} (conflict keep_both|skip|newer|overwrite; contents_only; flatten), sync {from,to,delete_extra}, delete {from} (Recycle Bin only), rename {from,rules: replace+with (regex), template, case, prefix, suffix, ext; on_conflict; counter; sort}, mkdir {to}, download {from: URLs, to, name, sha256}, extract {from, to}, edit {from, edits:[{find,replace,regex,count}], append}, write {to, content}. Filters: include/exclude (wildcards; separated), recursive, min_size/max_size, newer_than/older_than (30d, 6m, a date). Name tokens: {name} {ext} {parent} {n:3} {date:YYYY-MM-DD} {taken:...}. Dry-run first for delete, rename, overwrite and delete_extra. saved runs a saved job; notify signals when it ends.","inputSchema":{"type":"object","properties":{"steps":{"type":"array","items":{"type":"object","properties":{"op":{"type":"string","enum":["copy","move","sync","delete","rename","mkdir","download","extract","edit","write"]},"from":{"type":"array","items":{"type":"string"}},"to":{"type":"string"},"contents_only":{"type":"boolean"},"flatten":{"type":"boolean"},"conflict":{"type":"string","enum":["keep_both","skip","newer","overwrite"]},"delete_extra":{"type":"boolean"},"rules":{"type":"array","items":{"type":"object","properties":{"replace":{"type":"string"},"with":{"type":"string"},"regex":{"type":"boolean"},"ignore_case":{"type":"boolean"},"template":{"type":"string"},"case":{"type":"string","enum":["lower","upper","title","sentence"]},"prefix":{"type":"string"},"suffix":{"type":"string"},"ext":{"type":"string"},"ext_case":{"type":"string","enum":["lower","upper"]},"trim":{"type":"boolean"}}}},"on_conflict":{"type":"string","enum":["stop","number","skip"]},"counter":{"type":"string","enum":["folder","global"]},"sort":{"type":"string","enum":["name","date","taken","size"]},"start":{"type":"integer"},"folders":{"type":"boolean"},"include":{"type":"string"},"exclude":{"type":"string"},"recursive":{"type":"boolean"},"min_size":{"type":"string"},"max_size":{"type":"string"},"newer_than":{"type":"string"},"older_than":{"type":"string"},"verify":{"type":"string","enum":["size","hash","none"]},"workers":{"type":"integer"},"remove_empty_dirs":{"type":"boolean"},"name":{"type":"string"},"sha256":{"type":"string"},"edits":{"type":"array","items":{"type":"object","properties":{"find":{"type":"string"},"replace":{"type":"string"},"regex":{"type":"boolean"},"count":{"type":"integer"}},"required":["find"]}},"append":{"type":"string"},"content":{"type":"string"}},"required":["op"]}},"saved":{"type":"string"},"name":{"type":"string"},"dry_run":{"type":"boolean"},"wait_seconds":{"type":"integer"},"notify":{"type":"boolean"}}}}`),
-	json.RawMessage(`{"name":"job","description":"Jobs: status (no id = latest; wait_seconds), list, cancel, undo (restores moved/renamed/deleted/replaced files; dry_run), notify (signal through GitHub when it ends, with a shell command to wait for it instead of polling).","inputSchema":{"type":"object","properties":{"action":{"type":"string","enum":["status","list","cancel","undo","notify"]},"id":{"type":"string"},"dry_run":{"type":"boolean"},"wait_seconds":{"type":"integer"}}}}`),
+	json.RawMessage(`{"name":"job","description":"Jobs: status (no id = latest; wait_seconds), list, cancel (id local_ai stops the shared local AI server; refused while it is busy unless confirmed:true), undo (restores moved/renamed/deleted/replaced files; dry_run), notify (signal through GitHub when it ends, with a shell command to wait for it instead of polling).","inputSchema":{"type":"object","properties":{"action":{"type":"string","enum":["status","list","cancel","undo","notify"]},"id":{"type":"string"},"confirmed":{"type":"boolean"},"dry_run":{"type":"boolean"},"wait_seconds":{"type":"integer"}}}}`),
 	json.RawMessage(`{"name":"saved","description":"Saved jobs the user can re-run by double-click: list, show, save (name, steps like run_job, description), remove. Run one with run_job saved=name.","inputSchema":{"type":"object","properties":{"action":{"type":"string","enum":["list","show","save","remove"]},"name":{"type":"string"},"description":{"type":"string"},"steps":{"type":"array","items":{"type":"object"}}},"required":["action"]}}`),
-	json.RawMessage(`{"name":"local_ai","description":"The PC's own model reads files so their text stays out of the chat: ask (answer + which files), summarize, classify (optionally move files into move_to\\<category>; dry_run), models. Reads text, code, Office, PDF and pictures. Check key facts with read. If it returns a GPU-busy WARNING, tell the user and retry with force:true only if they agree.","inputSchema":{"type":"object","properties":{"action":{"type":"string","enum":["ask","summarize","classify","models"]},"paths":{"type":"array","items":{"type":"string"}},"question":{"type":"string"},"categories":{"type":"array","items":{"type":"string"}},"move_to":{"type":"string"},"include":{"type":"string"},"recursive":{"type":"boolean"},"max_files":{"type":"integer"},"detail":{"type":"string","enum":["brief","normal"]},"model":{"type":"string"},"dry_run":{"type":"boolean"},"force":{"type":"boolean"},"wait_seconds":{"type":"integer"},"notify":{"type":"boolean"}},"required":["action"]}}`),
+	json.RawMessage(`{"name":"local_ai","description":"The PC's own model reads files so their text stays out of the chat: ask (answer + which files), summarize, classify (optionally move files into move_to\\<category>; dry_run), models (server state: running, owner tokensaver/external, pinned, busy, idle minutes left; keep_running:true/false pins it on, idle_minutes sets the idle shutdown), stop (the shared server; refused while busy or not TokenSaver's unless confirmed:true). The server is shared with other apps: TokenSaver never stops one it didn't start, nor a busy one. Reads text, code, Office, PDF and pictures. Check key facts with read. If it returns a GPU-busy WARNING, tell the user and retry with force:true only if they agree.","inputSchema":{"type":"object","properties":{"action":{"type":"string","enum":["ask","summarize","classify","models","stop"]},"keep_running":{"type":"boolean"},"idle_minutes":{"type":"integer"},"confirmed":{"type":"boolean"},"paths":{"type":"array","items":{"type":"string"}},"question":{"type":"string"},"categories":{"type":"array","items":{"type":"string"}},"move_to":{"type":"string"},"include":{"type":"string"},"recursive":{"type":"boolean"},"max_files":{"type":"integer"},"detail":{"type":"string","enum":["brief","normal"]},"model":{"type":"string"},"dry_run":{"type":"boolean"},"force":{"type":"boolean"},"wait_seconds":{"type":"integer"},"notify":{"type":"boolean"}},"required":["action"]}}`),
 	json.RawMessage(`{"name":"run","description":"Run a command (cmd or powershell) as a background job; returns exit code, error lines and last lines (tail; 0 = none), full log stays on the PC; summary:true adds the local AI's few-line summary of a long output when the command has finished. No input possible: pass -y flags. wait_for: regex to return early (e.g. a server's ready line); keep_running for servers. elevated:true runs as admin without UAC; destructive admin commands (deleting, registry, services, disks, firewall...) are refused unless confirmed:true, set only after the user said yes to that exact command.","inputSchema":{"type":"object","properties":{"command":{"type":"string"},"elevated":{"type":"boolean"},"confirmed":{"type":"boolean"},"summary":{"type":"boolean"},"shell":{"type":"string","enum":["cmd","powershell","pwsh"]},"cwd":{"type":"string"},"env":{"type":"object","additionalProperties":{"type":"string"}},"timeout_minutes":{"type":"integer"},"keep_running":{"type":"boolean"},"wait_for":{"type":"string"},"wait_seconds":{"type":"integer"},"tail":{"type":"integer"},"name":{"type":"string"},"notify":{"type":"boolean"}},"required":["command"]}}`),
 	json.RawMessage(`{"name":"system","description":"PC state. info: Windows, CPU, RAM, free space per drive, GPU/driver/CUDA, installed tools. processes (filter), ports, kill (pids, or name + match; system and Claude processes are refused). restart_claude: quit and reopen Claude desktop so it loads an updated TokenSaver (this chat ends; start a new one).","inputSchema":{"type":"object","properties":{"action":{"type":"string","enum":["info","processes","ports","kill","restart_claude"]},"filter":{"type":"string"},"port":{"type":"integer"},"pids":{"type":"array","items":{"type":"integer"}},"name":{"type":"string"},"match":{"type":"string"}}}}`),
 	json.RawMessage(`{"name":"web","description":"Search the web and read pages on the PC, text only (no JavaScript; use browser for that). search: titles, URLs, snippets. find: only lines matching pattern in urls or the top results of query. read: outline and first lines; from_line/lines for more. links (pattern). ask: the local AI answers question from the pages (same GPU rule as local_ai). PDFs read as text. Cached 30 min (fresh:true refetches).","inputSchema":{"type":"object","properties":{"action":{"type":"string","enum":["search","find","read","links","ask"]},"query":{"type":"string"},"urls":{"type":"array","items":{"type":"string"}},"url":{"type":"string"},"pattern":{"type":"string"},"regex":{"type":"boolean"},"context":{"type":"integer"},"question":{"type":"string"},"pages":{"type":"integer"},"results":{"type":"integer"},"from_line":{"type":"integer"},"lines":{"type":"integer"},"max_chars":{"type":"integer"},"fresh":{"type":"boolean"},"model":{"type":"string"},"force":{"type":"boolean"},"notify":{"type":"boolean"},"wait_seconds":{"type":"integer"}},"required":["action"]}}`),

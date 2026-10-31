@@ -21,12 +21,14 @@ const isWin = runtime.GOOS == "windows"
 const defaultAIScript = `D:\llama.cpp\start-qwen3.6-27b-nothink.bat`
 
 type Config struct {
-	Workers      int      `json:"workers,omitempty"`
-	ExtraBlocked []string `json:"extra_blocked,omitempty"`
-	AIScript     string   `json:"ai_script,omitempty"`
-	AIEndpoint   string   `json:"ai_endpoint,omitempty"`
-	AIModel      string   `json:"ai_model,omitempty"`
-	NotifyRepo   string   `json:"notify_repo,omitempty"`
+	Workers       int      `json:"workers,omitempty"`
+	ExtraBlocked  []string `json:"extra_blocked,omitempty"`
+	AIScript      string   `json:"ai_script,omitempty"`
+	AIEndpoint    string   `json:"ai_endpoint,omitempty"`
+	AIModel       string   `json:"ai_model,omitempty"`
+	AIIdleMinutes int      `json:"ai_idle_minutes,omitempty"` // idle time before TokenSaver stops a server it started (default 15)
+	AIKeepRunning bool     `json:"ai_keep_running,omitempty"` // pin: never auto-stop the local AI server
+	NotifyRepo    string   `json:"notify_repo,omitempty"`
 }
 
 var (

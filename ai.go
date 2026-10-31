@@ -484,8 +484,10 @@ func scriptAddr(script string) (string, int) {
 
 var aiMu sync.Mutex
 
-// openAI returns a client and a stop function. When the app had to start the
-// model itself, stop shuts it down again; a model the user started is left running.
+// openAI returns a client and a release function. The llama.cpp server is shared with
+// other apps (remoteai): release only ends this job's use of it; a server TokenSaver
+// started is stopped later by the ai-watch watcher once idle (see aiserver.go), and a
+// server that was already up is never stopped.
 func openAI(j *Job, want string) (*aiClient, func(), error) {
 	noop := func() {}
 	hc := &http.Client{Timeout: 10 * time.Minute}
@@ -508,7 +510,9 @@ func openAI(j *Job, want string) (*aiClient, func(), error) {
 			return c, stop, nil
 		}
 		if c.healthy() {
-			return finish(noop)
+			// Already up (remoteai's, the user's, or one TokenSaver started earlier): use it.
+			aiAdopt(c.base, port)
+			return finish(aiLease(j.ID))
 		}
 		j.setCurrent("starting the local AI model…")
 		prePid := listenerPid(port) // a server already loading on the port isn't ours
@@ -541,7 +545,16 @@ func openAI(j *Job, want string) (*aiClient, func(), error) {
 				if ms, err := c.models(); err == nil && len(ms) > 0 {
 					ownModel = ms[0]
 				}
-				return finish(stop)
+				if ownPid == 0 && prePid > 0 {
+					// A server that was already loading answered, not ours: close our script
+					// and treat that server as external.
+					stop()
+					aiAdopt(c.base, port)
+					return finish(aiLease(j.ID))
+				}
+				// Ours, but shared from now on: the watcher stops it only when idle.
+				aiClaim(c.base, port, p.cmd.Process.Pid, ownPid, ownModel)
+				return finish(aiLease(j.ID))
 			}
 			if exitedAt.IsZero() && p.exited() {
 				exitedAt = time.Now()
@@ -1057,13 +1070,9 @@ func aiModelsText() string {
 	var b strings.Builder
 	if cfg.AIScript != "" {
 		host, port := scriptAddr(cfg.AIScript)
-		state := "not running (the app starts it when a job needs it, then shuts it down)"
-		c := &aiClient{kind: "openai", base: fmt.Sprintf("http://%s:%d", host, port)}
+		state := aiServerStatus(fmt.Sprintf("http://%s:%d", host, port), port)
 		if !exists(cfg.AIScript) {
-			state = "script not found"
-		} else if c.healthy() {
-			ms, _ := c.models()
-			state = "running: " + strings.Join(ms, ", ")
+			state = "script not found | " + state
 		}
 		fmt.Fprintf(&b, "llama.cpp script %s (%s:%d): %s\n", cfg.AIScript, host, port, state)
 	}
