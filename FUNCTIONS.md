@@ -1,6 +1,6 @@
 # TokenSaver functions
 
-**Version 1.22.0**
+**Version 1.23.0**
 
 Windows PC helper that Claude hands work to, so the steps run on the PC instead of costing tokens in the chat. Runs as an MCP server in Claude desktop. Everything it keeps is in `D:\Claude Apps\TokenSaver`.
 
@@ -30,6 +30,15 @@ Windows PC helper that Claude hands work to, so the steps run on the PC instead 
 Also: tells Claude desktop to prefer TokenSaver over its built-in tools, undo for file jobs, job-end signals through GitHub (no polling), protected system folders; the terminal also reconnects Claude desktop and installs or removes the admin helper.
 
 ## What's new
+### 1.23.0
+- Phone link (tokensaver serve) now runs as the Windows service TokenSaverLink: starts at boot as LocalSystem, before anyone signs in; install-link sets it up through the elevated helper and removes the old sign-in task
+- Only one cloudflared: it lives in a kill-on-close job object, leftovers for port 8766 are killed, serve holds a single-instance lock, restarts stop the old process first
+- Tunnel starts only once port 8766 answers; serve logs bind failures to data\logs\serve.log and keeps retrying
+- Firewall rules for tokensaver.exe and cloudflared.exe are pre-created (duplicates removed), so no Windows prompts
+- Updates: the service notices the replaced program and restarts itself on it, no orphans, no clicks
+- phone tunnel status shows service state, cloudflared count, port 8766, tunnel URL and firewall rules
+- New tunnel URLs are re-sent to the phone until it has them (works after a reboot with nobody signed in)
+- Fixed: port 8766 looked 'not listening' because Windows reports serve's socket with an odd state that netstat hides
 ### 1.22.0
 - Local AI server is now shared: a server that was already running (e.g. remoteai's) is marked external and never stopped by TokenSaver
 - No more instant shutdown: a server TokenSaver started stays up until idle for ai_idle_minutes (default 15); any request from any app resets the timer
