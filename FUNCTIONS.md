@@ -1,6 +1,6 @@
 # TokenSaver functions
 
-**Version 1.24.0**
+**Version 1.25.0**
 
 Windows PC helper that Claude hands work to, so the steps run on the PC instead of costing tokens in the chat. Runs as an MCP server in Claude desktop. Everything it keeps is in `D:\Claude Apps\TokenSaver`.
 
@@ -22,14 +22,21 @@ Windows PC helper that Claude hands work to, so the steps run on the PC instead 
 - **rag** â€” search your files by meaning (C: and D:, documents and code; index updated only when asked) and keep memory notes Claude can recall in later chats; uses the CPU by itself while ComfyUI or training holds the GPU
 - **phone** â€” your Android phone through the AdbSaver engine on it (same tools: find, read, write, scan, run, ui, screen, apps, notifications, system, web, local_ai, saved) over the LAN, Tailscale from anywhere, or plain adb when the engine is down; status, pair, config, adb, tunnel, public, push_routes
 - **serve** / **install-link** â€” the phone reaches this PC's tools the same way: a token-protected HTTP front (port 8766) run by the "TokenSaver Link" task, reachable over LAN, Tailscale, a forwarded public port (`phone public setup`) or a cloudflared tunnel (`phone tunnel start`, works behind CGNAT, no Tailscale needed); the phone gets the current routes at every report
-- **git** â€” Git in one call, never as admin, GitHub sign-in straight to the browser: status, log, diff, commit, push, pull, clone, release (bumps the version, adds the notes to this file, commits and pushes), handoff (notes for another project from the commits and diff, summarized by the local AI)
+- **git** â€” Git in one call, never as admin, GitHub sign-in straight to the browser: status, log, diff, commit, push, pull, clone (updates an existing clone instead of failing), compare (two folders or repo versions file by file: only on one side, changed lines, same; pairs x_windows.go with x_linux.go), release (bumps the version, adds the notes to this file, commits and pushes), handoff (notes for another project from the commits and diff, summarized by the local AI)
+- **outline** â€” functions and types with line numbers for a code file or project (universal-ctags, regex fallback), so only the needed lines get read
 - **check** â€” lint and type-check code (Ruff + mypy for Python, ESLint + tsc for JS/TS, go vet + staticcheck for Go, Android lint for Gradle projects; skips gitignored files) on the PC, on the phone over ADB, or in a GitHub repo; safe autofixes with fix; build: compile + run the project's tests and return only the failing lines
 - **window** â€” read on-screen text without screenshots: list windows, a window's text (UI Automation, works on Chrome/Electron/Steam), OCR of a window or area, copy-all via clipboard (restored), do: click buttons and fill fields by name, click on OCR text, click/move/drag at a position, scroll, hold keys, press keys, several steps per call (never in Claude's own windows); OCR with positions; clipboard get/set; small screenshot of a window or area, or a local AI answer about it instead; long text saved to a file, optional local AI summary; wait for a window or text to show; changes-only re-reads
 - **Terminal** (double-click TokenSaver) â€” record or build macros, pick screen spots and colors, set your own triggers (hotkey, or a color showing/changing in a screen area â†’ click or macro), run saved jobs and any tool; Ctrl+Alt+Esc stops
 
-Also: tells Claude desktop to prefer TokenSaver over its built-in tools, undo for file jobs, job-end signals through GitHub (no polling), protected system folders; the terminal also reconnects Claude desktop and installs or removes the admin helper.
+Also: GitHub repos as paths (owner/name[@ref][/sub] in find, read, scan, check, outline and git) read from a temporary copy TokenSaver keeps on the PC, updated as needed and removed after a day unused, so Claude never clones repos itself; tells Claude desktop to prefer TokenSaver over its built-in tools, undo for file jobs, job-end signals through GitHub (no polling), protected system folders; the terminal also reconnects Claude desktop and installs or removes the admin helper.
 
 ## What's new
+### 1.25.0
+- GitHub repos as paths: owner/name[@ref][/sub] in find, read, scan, check, outline and git reads from a temporary copy TokenSaver keeps in data\repos (cloned with your GitHub sign-in, updated after 5 min, removed after a day unused); results show owner/name paths, so Claude never clones repos itself
+- git clone updates a folder that already holds that clone (pull --ff-only) instead of failing; with no folder it gives the temporary copy; returns path, branch and last commit
+- New git compare: two folders or repo versions file by file: files only on one side, changed files by changed lines, how many are the same; pair:true matches x_windows.go with x_linux.go/x.go; paths + full:true shows those files' changed lines
+- New outline tool: functions and types with line numbers (universal-ctags, regex fallback)
+- Commit, push and release are refused on the temporary copies
 ### 1.24.0
 - New chats tool: saves every claude.ai chat (all projects + regular chats) to D:\Claude Chats as Markdown, one file per chat, through TokenSaver's signed-in browser; the session cookie never leaves the browser and chat text never passes through Claude
 - Only changed chats are re-fetched (index.json keeps id, path, updated_at); renamed chats move to their new file name

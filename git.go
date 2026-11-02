@@ -31,6 +31,7 @@ type gitArgs struct {
 	Full     bool     `json:"full"`
 	NoPush   bool     `json:"no_push"`
 	DryRun   bool     `json:"dry_run"`
+	Pair     bool     `json:"pair"`
 	MaxChars int      `json:"max_chars"`
 	Wait     *int     `json:"wait_seconds"`
 }
@@ -194,7 +195,7 @@ func gitShort(s string, n int) string {
 	return strings.Join(lines, "\n")
 }
 
-func toolGit(raw json.RawMessage) (string, error) {
+func toolGit(raw json.RawMessage) (res string, rerr error) {
 	var a gitArgs
 	if err := json.Unmarshal(raw, &a); err != nil {
 		return "", fmt.Errorf("bad arguments: %v", err)
@@ -209,29 +210,27 @@ func toolGit(raw json.RawMessage) (string, error) {
 	}
 
 	if action == "clone" {
-		if strings.TrimSpace(a.URL) == "" {
-			return "", errors.New("clone needs url")
-		}
-		u := a.URL
-		if !strings.Contains(u, "://") && !strings.HasPrefix(u, "git@") && strings.Count(u, "/") == 1 {
-			u = "https://github.com/" + u
-		}
-		to := a.To
-		if to == "" {
-			to = a.Path
-		}
-		if strings.TrimSpace(to) == "" {
-			return "", errors.New("clone needs to (target folder)")
-		}
-		cmd := "git " + strings.Join(gitNetFlags, " ") + " clone --progress"
-		if a.Ref != "" {
-			cmd += " --branch " + a.Ref
-		}
-		cmd += fmt.Sprintf(" %q %q", u, to)
-		rargs, _ := json.Marshal(map[string]any{"command": cmd, "name": "git clone", "tail": 5, "wait_seconds": waitSecs(a.Wait, 45, 50), "env": map[string]string{"GIT_TERMINAL_PROMPT": "0"}})
-		return toolRun(rargs)
+		return gitClone(a)
 	}
-
+	if action == "compare" {
+		return gitCompare(a, maxChars)
+	}
+	if c, ok, err := repoResolve(a.Path); ok {
+		if err != nil {
+			return "", err
+		}
+		switch action {
+		case "commit", "push", "release":
+			return "", fmt.Errorf("%s is TokenSaver's temporary read-only copy; to change it, clone it to a folder of your own (git clone url:%s to:<folder>)", c.Label, c.Label)
+		case "pull":
+			return repoInfo(c.Root, c.Label, "up to date (TokenSaver's temporary copy)"), nil
+		}
+		a.Path = c.Root
+		if c.Sub != "" && len(a.Paths) == 0 {
+			a.Paths = []string{c.Sub}
+		}
+		defer func() { res = repoFixer([]*repoCopy{c})(res) }()
+	}
 	root, err := gitRoot(a.Path)
 	if err != nil {
 		return "", err
@@ -402,7 +401,7 @@ func toolGit(raw json.RawMessage) (string, error) {
 	case "handoff":
 		return gitHandoff(root, a, maxChars)
 	}
-	return "", fmt.Errorf("unknown action %q (status, log, diff, commit, push, pull, clone, release, handoff)", action)
+	return "", fmt.Errorf("unknown action %q (status, log, diff, compare, commit, push, pull, clone, release, handoff)", action)
 }
 
 func firstErr(out string, err error) string {
