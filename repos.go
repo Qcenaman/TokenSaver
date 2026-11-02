@@ -652,8 +652,9 @@ func gitCloneTo(url, dest, ref string) (string, error) {
 		if !st.IsDir() {
 			return "", fmt.Errorf("%s is a file", dest)
 		}
-		top, code, _ := gitExec(dest, 20*time.Second, "rev-parse", "--show-toplevel")
-		if code == 0 && samePath(filepath.FromSlash(top), dest) {
+		// asked of git, not by comparing paths: Windows short names (RUNNER~1) differ from git's
+		prefix, code, _ := gitExec(dest, 20*time.Second, "rev-parse", "--show-prefix")
+		if code == 0 && prefix == "" {
 			origin, _, _ := gitExec(dest, 20*time.Second, "remote", "get-url", "origin")
 			if remoteKey(origin) != remoteKey(url) {
 				return "", fmt.Errorf("%s is already a clone of %s, not %s", dest, origin, url)

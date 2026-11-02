@@ -1,6 +1,6 @@
 # TokenSaver functions
 
-**Version 1.25.0**
+**Version 1.25.1**
 
 Windows PC helper that Claude hands work to, so the steps run on the PC instead of costing tokens in the chat. Runs as an MCP server in Claude desktop. Everything it keeps is in `D:\Claude Apps\TokenSaver`.
 
@@ -31,6 +31,8 @@ Windows PC helper that Claude hands work to, so the steps run on the PC instead 
 Also: GitHub repos as paths (owner/name[@ref][/sub] in find, read, scan, check, outline and git) read from a temporary copy TokenSaver keeps on the PC, updated as needed and removed after a day unused, so Claude never clones repos itself; tells Claude desktop to prefer TokenSaver over its built-in tools, undo for file jobs, job-end signals through GitHub (no polling), protected system folders; the terminal also reconnects Claude desktop and installs or removes the admin helper.
 
 ## What's new
+### 1.25.1
+- Fix: git clone now recognises a folder that is already that clone even when its path uses Windows short names (like RUNNER~1), instead of saying it is not a clone
 ### 1.25.0
 - GitHub repos as paths: owner/name[@ref][/sub] in find, read, scan, check, outline and git reads from a temporary copy TokenSaver keeps in data\repos (cloned with your GitHub sign-in, updated after 5 min, removed after a day unused); results show owner/name paths, so Claude never clones repos itself
 - git clone updates a folder that already holds that clone (pull --ff-only) instead of failing; with no folder it gives the temporary copy; returns path, branch and last commit
