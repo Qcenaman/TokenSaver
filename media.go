@@ -229,7 +229,7 @@ func transcribe(p, key, lang string, stamps bool) error {
 	return nil
 }
 
-func mediaTranscript(p, lang string, stamps, force bool, wait time.Duration, maxc int) (string, error) {
+func mediaTranscript(p, lang string, stamps bool, gpu string, wait time.Duration, maxc int) (out string, err error) {
 	key, err := mediaKey(p)
 	if err != nil {
 		return "", err
@@ -242,10 +242,16 @@ func mediaTranscript(p, lang string, stamps, force bool, wait time.Duration, max
 		body, note := capText(strings.TrimSpace(string(b)), maxc, filepath.Base(p)+" transcript")
 		return fmt.Sprintf("Transcript of %s (full text: %s)\n%s%s", filepath.Base(p), txt, body, note), nil
 	}
-	if !force {
-		if w := gpuWarning(); w != "" {
-			return "", errors.New(strings.Replace(w, "call local_ai again", "call media again", 1))
-		}
+	rem, note := gpuGate("Whisper (transcript)", gpu, true)
+	if rem != "" {
+		return rem, nil
+	}
+	if note != "" {
+		defer func() {
+			if err == nil {
+				out = gpuNoted(note, out)
+			}
+		}()
 	}
 	mediaMu.Lock()
 	done, running := mediaRunning[key]
@@ -280,7 +286,7 @@ func mediaTranscript(p, lang string, stamps, force bool, wait time.Duration, max
 	if err != nil {
 		return "", err
 	}
-	return mediaTranscript(p, lang, stamps, true, 0, maxc)
+	return mediaTranscript(p, lang, stamps, "continue", 0, maxc)
 }
 
 // mediaFrames saves stills from a video and returns their OCR text.
@@ -331,6 +337,7 @@ func toolMedia(raw json.RawMessage) (string, error) {
 		Frames     int     `json:"frames"`
 		Every      float64 `json:"every"`
 		Force      bool    `json:"force"`
+		GPU        string  `json:"gpu"`
 		MaxChars   int     `json:"max_chars"`
 	}
 	if err := json.Unmarshal(raw, &a); err != nil {
@@ -355,7 +362,7 @@ func toolMedia(raw json.RawMessage) (string, error) {
 	case "info", "":
 		return mediaInfo(p)
 	case "transcript":
-		return mediaTranscript(p, a.Language, a.Timestamps, a.Force, 45*time.Second, maxc)
+		return mediaTranscript(p, a.Language, a.Timestamps, gpuMode(a.GPU, a.Force), 45*time.Second, maxc)
 	case "frames":
 		return mediaFrames(p, a.Frames, a.Every, maxc)
 	}

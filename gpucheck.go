@@ -24,12 +24,12 @@ var gpuApps = []struct {
 	{"ComfyUI", func(n, c string) bool { return strings.Contains(n, "comfyui") || strings.Contains(c, "comfyui") }},
 }
 
-// gpuBusy reports what is using the GPU right now. It returns "" when the GPU looks free.
-func gpuBusy() string {
-	var reasons []string
+// gpuUsers finds the programs that are likely holding the GPU, plus a VRAM note
+// when the GPU itself looks loaded. Both empty means the GPU looks free.
+func gpuUsers() ([]*gpuUser, string) {
+	var users []*gpuUser
 	if ps, err := procs(); err == nil {
 		found := map[string]*gpuUser{}
-		var order []string
 		for _, p := range ps {
 			n, c := strings.ToLower(p.name), strings.ToLower(p.cmd)
 			if strings.Contains(c, "tokensaver") || strings.Contains(n, "tokensaver") {
@@ -41,26 +41,15 @@ func gpuBusy() string {
 					if u == nil {
 						u = &gpuUser{what: a.what}
 						found[a.what] = u
-						order = append(order, a.what)
+						users = append(users, u)
 					}
 					u.pids = append(u.pids, p.pid)
 					break
 				}
 			}
 		}
-		for _, w := range order {
-			u := found[w]
-			ids := make([]string, 0, len(u.pids))
-			for i, id := range u.pids {
-				if i >= 3 {
-					ids = append(ids, "…")
-					break
-				}
-				ids = append(ids, strconv.Itoa(id))
-			}
-			reasons = append(reasons, fmt.Sprintf("%s is running (pid %s)", u.what, strings.Join(ids, ", ")))
-		}
 	}
+	vram := ""
 	out, err := runQuiet(15*time.Second, "nvidia-smi", "--query-gpu=memory.used,memory.total,utilization.gpu", "--format=csv,noheader,nounits")
 	if err == nil {
 		for _, l := range strings.Split(strings.TrimSpace(out), "\n") {
@@ -71,17 +60,36 @@ func gpuBusy() string {
 			used, _ := strconv.ParseFloat(strings.TrimSpace(f[0]), 64)
 			total, _ := strconv.ParseFloat(strings.TrimSpace(f[1]), 64)
 			util, _ := strconv.Atoi(strings.TrimSpace(f[2]))
-			// Windows and a browser alone hold a few GB; more than that or a busy GPU means real work.
-			if used > 6144 || util >= 40 || len(reasons) > 0 {
-				reasons = append(reasons, fmt.Sprintf("GPU has %.1f of %.1f GB VRAM in use and is %d%% busy", used/1024, total/1024, util))
+			// The desktop and a browser alone hold a few GB; more than that or a busy GPU means real work.
+			if used > 6144 || util >= 40 || len(users) > 0 {
+				vram = fmt.Sprintf("GPU has %.1f of %.1f GB VRAM in use and is %d%% busy", used/1024, total/1024, util)
 			}
 		}
 	}
-	if len(reasons) == 0 {
-		return ""
+	return users, vram
+}
+
+func describeGPUUsers(users []*gpuUser, vram string) string {
+	var reasons []string
+	for _, u := range users {
+		ids := make([]string, 0, len(u.pids))
+		for i, id := range u.pids {
+			if i >= 3 {
+				ids = append(ids, "…")
+				break
+			}
+			ids = append(ids, strconv.Itoa(id))
+		}
+		reasons = append(reasons, fmt.Sprintf("%s is running (pid %s)", u.what, strings.Join(ids, ", ")))
+	}
+	if vram != "" {
+		reasons = append(reasons, vram)
 	}
 	return strings.Join(reasons, "; ")
 }
+
+// gpuBusy reports what is using the GPU right now. It returns "" when the GPU looks free.
+func gpuBusy() string { return describeGPUUsers(gpuUsers()) }
 
 // aiWouldLoad reports whether running a local AI job would load a model onto the GPU.
 // A llama.cpp server that is already up is reused, so nothing new is loaded.
@@ -102,15 +110,56 @@ func aiWouldLoad() bool {
 	return true
 }
 
-// gpuWarning returns a warning to show instead of loading the local AI, or "" if it is fine to go ahead.
-func gpuWarning() string {
-	if !aiWouldLoad() {
-		return ""
+// gpuGate is the one GPU check every GPU job goes through. It only reminds the
+// user: when something else holds the GPU it returns a reminder naming it, and
+// the user picks gpu:"stop" (shut those programs down, then run) or
+// gpu:"continue" (run anyway). load=false skips the check (nothing new would
+// load onto the GPU). note is a line to show with the result after a stop.
+func gpuGate(what, mode string, load bool) (reminder, note string) {
+	mode = strings.ToLower(strings.TrimSpace(mode))
+	if !load || mode == "continue" {
+		return "", ""
 	}
-	busy := gpuBusy()
-	if busy == "" {
-		return ""
+	users, vram := gpuUsers()
+	if len(users) == 0 && vram == "" {
+		return "", ""
 	}
-	return "WARNING: the local AI model was NOT loaded because the GPU looks busy: " + busy +
-		". Loading it now would compete for VRAM and could slow down or crash that work. Tell the user and ask whether to go ahead; only if they say yes, call local_ai again with the same arguments plus force:true."
+	if mode == "stop" {
+		var pids []int
+		for _, u := range users {
+			pids = append(pids, u.pids...)
+		}
+		if len(pids) == 0 {
+			return "", "GPU note: nothing known to stop (" + vram + "); went ahead anyway."
+		}
+		res, err := killProcs(pids, "", "")
+		if err != nil {
+			res = err.Error()
+		}
+		time.Sleep(2 * time.Second)
+		return "", "Stopped for the GPU: " + strings.ReplaceAll(res, "\n", "; ")
+	}
+	stop := "shut them down first"
+	if len(users) == 0 {
+		stop = "not available (no known program to stop)"
+	}
+	return fmt.Sprintf("REMINDER: %s was not started because the GPU is in use: %s. Ask the user what to do: "+
+		"stop (%s) or continue anyway (it may slow down or crash that work). Then call again with the same arguments plus "+
+		"gpu:\"stop\" or gpu:\"continue\".", what, describeGPUUsers(users, vram), stop), ""
+}
+
+// gpuMode keeps the old force:true working as gpu:"continue".
+func gpuMode(mode string, force bool) string {
+	if force && mode == "" {
+		return "continue"
+	}
+	return mode
+}
+
+// gpuNoted puts the stop note (if any) above a result.
+func gpuNoted(note, out string) string {
+	if note == "" {
+		return out
+	}
+	return note + "\n" + out
 }

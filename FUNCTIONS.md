@@ -1,6 +1,6 @@
 # TokenSaver functions
 
-**Version 1.27.0**
+**Version 1.27.1**
 
 Windows PC helper that Claude hands work to, so the steps run on the PC instead of costing tokens in the chat. Runs as an MCP server in Claude desktop. Everything it keeps is in `D:\Claude Apps\TokenSaver`.
 
@@ -31,9 +31,12 @@ Windows PC helper that Claude hands work to, so the steps run on the PC instead 
 Also: GitHub repos as paths (owner/name[@ref][/sub] in find, read, scan, check, outline and git) read from a temporary copy TokenSaver keeps on the PC, updated as needed and removed after a day unused, so Claude never clones repos itself; tells Claude desktop to prefer TokenSaver over its built-in tools, undo for file jobs, job-end signals through GitHub (no polling), protected system folders; the terminal also reconnects Claude desktop and installs or removes the admin helper.
 
 ## What's new
+### 1.27.1
+- GPU check is now only a reminder: when ComfyUI, AI Toolkit training or heavy VRAM use has the GPU, local_ai, web ask, window screenshot questions and media transcripts say what is running and let you choose: gpu:"stop" shuts those programs down and goes ahead, gpu:"continue" goes ahead anyway (force:true still means continue)
+- Same reminder on Windows and Linux, including transcripts
 ### 1.27.0
 - One repo for every platform: the Linux version (until now the separate TokenSaver-Linux repo) is merged in, so each release builds tokensaver.exe (Windows), tokensaver-linux-amd64 and tokensaver-linux-arm64 from the same code
-- Linux gets all Windows features it was missing: local_ai, web ask, run/window summaries, screenshot questions, GPU-busy check, GitHub repos as paths, git compare, outline, claude.ai custom connector
+- Linux gets all Windows features it was missing: local_ai, web ask, run/window summaries, screenshot questions, GitHub repos as paths, git compare, outline, claude.ai custom connector
 - Platform-only parts live in *_windows.go / *_linux.go files; tool descriptions name bash, Trash and ~/Claude Chats on Linux
 - Fix: garbled arrows and symbols (→, —, °, ·) in some messages
 ### 1.26.0

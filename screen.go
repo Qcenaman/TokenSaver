@@ -285,6 +285,7 @@ func toolWindowFull(raw json.RawMessage) (string, []toolImage, error) {
 		Text     *string `json:"text"`
 		Question string  `json:"question"`
 		Force    bool    `json:"force"`
+		GPU      string  `json:"gpu"`
 		Boxes    bool    `json:"boxes"`
 	}
 	if err := json.Unmarshal(raw, &a); err != nil {
@@ -313,7 +314,7 @@ func toolWindowFull(raw json.RawMessage) (string, []toolImage, error) {
 		body, note := capText(t, min(maxc, 30000), "clipboard")
 		return body + note, nil, nil
 	case act == "screenshot":
-		s, img, err := screenshot(a.Window, a.X, a.Y, a.W, a.H, a.MaxPx, a.Question, a.Force)
+		s, img, err := screenshot(a.Window, a.X, a.Y, a.W, a.H, a.MaxPx, a.Question, gpuMode(a.GPU, a.Force))
 		if img == nil {
 			return s, nil, err
 		}
@@ -363,7 +364,7 @@ func toolWindowFull(raw json.RawMessage) (string, []toolImage, error) {
 }
 
 // screenshot returns a small JPEG of a window or area, or (with question) the local AI's answer about it.
-func screenshot(window string, x, y *int, w, h, maxPx int, question string, force bool) (string, []byte, error) {
+func screenshot(window string, x, y *int, w, h, maxPx int, question string, gpu string) (string, []byte, error) {
 	if !inputSupported {
 		return "", nil, errNoInput
 	}
@@ -418,7 +419,7 @@ func screenshot(window string, x, y *int, w, h, maxPx int, question string, forc
 		if err := os.WriteFile(p, buf.Bytes(), 0o644); err != nil {
 			return "", nil, err
 		}
-		args, _ := json.Marshal(map[string]any{"action": "ask", "paths": []string{p}, "question": question, "force": force})
+		args, _ := json.Marshal(map[string]any{"action": "ask", "paths": []string{p}, "question": question, "gpu": gpu})
 		ans, err := toolLocalAI(args)
 		if err != nil {
 			return "", nil, err

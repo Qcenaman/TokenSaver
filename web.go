@@ -30,6 +30,7 @@ type WebRequest struct {
 	Pages    int     `json:"pages,omitempty"`
 	Model    string  `json:"model,omitempty"`
 	Force    bool    `json:"force,omitempty"`
+	GPU      string  `json:"gpu,omitempty"`
 	Fresh    bool    `json:"fresh,omitempty"`
 }
 
@@ -798,10 +799,9 @@ func toolWeb(raw json.RawMessage) (string, error) {
 		if len(req.URLs) == 0 && strings.TrimSpace(req.Query) == "" {
 			return "", errors.New("ask needs urls, or query to search first")
 		}
-		if !req.Force {
-			if w := gpuWarning(); w != "" {
-				return strings.Replace(w, "local_ai", "web", -1), nil
-			}
+		rem, note := gpuGate("The local AI (web ask)", gpuMode(req.GPU, req.Force), aiWouldLoad())
+		if rem != "" {
+			return rem, nil
 		}
 		j, err := newJob(JobSpec{Name: "web ask", Kind: "web", Web: &req, Source: "chat"})
 		if err != nil {
@@ -810,7 +810,7 @@ func toolWeb(raw json.RawMessage) (string, error) {
 		j.start()
 		waitJob(j, waitSecs(a.Wait, 40, 50))
 		s := j.snapshot()
-		return withNotify(formatState(&s), &s, a.Notify), nil
+		return gpuNoted(note, withNotify(formatState(&s), &s, a.Notify)), nil
 	}
 	return "", errors.New("action must be search, find, read, links or ask")
 }
