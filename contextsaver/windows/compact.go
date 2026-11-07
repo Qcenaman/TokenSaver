@@ -20,14 +20,14 @@ import (
 
 const compactDesc = `The user's Windows PC; you CAN act, so call this instead of refusing. c=command, a=args, absolute paths or GitHub owner/name[@ref][/sub].
 open{target} find{path[],name,text} ls{path} read{path,from_line,lines,pattern} write{path,content} edit{path,find,replace} run{command} web{query|url} ai{paths[],question} office{action,path} rag{query|text} sys{action} model{name} more{id}
-git{action:commit|push|login|release|ci|compare,path,to,message} check{path,action:build|test|compile,target} outline{path} new{kind,name} deps export
+git{action:commit|push|login|release|ci|compare,path,to,message} check{path,action:build|test|compile|review,target} outline{path} new{kind,name} deps export
 Also: plan files job saved browser window media. phone{action:install,app}=user's phone, not adb. help{c}=all args.
 The user's own apps (AdbSaver RemoteAI TokenSaver...) are in D:\Claude Apps + github Qcenaman/<name>: never web-search them. me = about the user.`
 
 // clineDesc: with "mcp --for cline" only what Cline lacks is advertised (Cline has its
 // own read/write/edit/run/find/browser); every command still works.
 const clineDesc = `The user's PC beyond Cline's own tools; you CAN act. c=command, a=args, absolute paths or GitHub owner/name[@ref][/sub].
-git{action:status|diff|log|commit|push|pull|clone|login|ci|compare,path,to,message} check{path,action:check|build} after every code change
+git{action:status|diff|log|commit|push|pull|clone|login|ci|compare,path,to,message} check{path,action:check|build|review} after every code change
 compile{path,target:linux|windows|android} outline{path} test{path,name} new{kind,name} deps{path,action,name} release{path,version} logcat{app}
 rag{query|text} office{action,path} web{query|url} ai{paths[],question} model{name}
 Also: window media sys saved job phone export more. help{c} = all args.`
@@ -255,6 +255,16 @@ func compactDispatch(c string, a map[string]any) (string, []toolImage, error) {
 		return out, nil, err
 	case "outline", "symbols":
 		out, err := repoRun("outline", a, func() (string, error) { return toolOutline(a) })
+		return out, nil, err
+	case "review", "code_review":
+		if _, ok := a["max"]; !ok {
+			a["max"] = 15
+		}
+		a["action"] = "review"
+		out, err := repoRun("check", a, func() (string, error) {
+			b, _ := json.Marshal(a)
+			return toolReview(b)
+		})
 		return out, nil, err
 	case "test", "tests":
 		out, err := repoRun("check", a, func() (string, error) { return toolTest(a) })
@@ -748,7 +758,8 @@ var shortHelp = map[string]string{
 	"window":  "window{action,window:title|program|pid}: list{filter} text ocr{x,y,w,h,boxes} copy wait{pattern} clipboard{text} screenshot{question}\ndo{steps:[{click:name}{type,into}{press}{wait}{click_text,nth}{click_at:[x,y]}{move:[x,y]}{drag:[x1,y1,x2,y2]}{scroll:n}{hold,secs}],button,then:\"text\"}",
 	"media":   "media{action:info|transcript|frames,path,language,timestamps}: audio/video as text.",
 	"git":     "git{action:status|diff|log|commit|push|pull|clone|login|ci|compare,path,message,paths[],full,ref,n,url,to,pair,wait_seconds}: never as admin; login = GitHub sign-in (gives a code for the user); ci = latest GitHub Actions run, failing lines only. path may be owner/name[@ref] (GitHub copy, read-only; pull updates it when the user wants). clone{url,to}: no to = temporary copy; an existing clone is updated. compare{path,to,pair,n,paths[],full}: A vs B (folders or owner/name[@ref]): only in A/B, changed +/-, same; pair matches x_windows.go with x_linux.go/x.go; paths[]+full = their changed lines.",
-	"check":   "check{path,action,fix,name,target,out}: check = lint/type-check; build = build+tests; test = tests (name filters); compile = runnable files for target linux|windows|android into dist/<target>. Failing lines only. Run after every code change.",
+	"review":  "review{path,base,all,ai,no_test,skip}: deep code review of what changed (uncommitted, else the last commit; base = branch/tag/commit; all = every file): bugs, security, secrets, vulnerable or made-up packages, CI, scripts, build + tests, unfinished or fake code. Verdict BLOCK/FIX/PASS with the lines to fix and the full report path. Run it before every commit and push; fix every error first.",
+	"check":   "check{path,action,fix,name,target,out,base}: check = lint/type-check; build = build+tests; test = tests (name filters); compile = runnable files for target linux|windows|android into dist/<target>; review = deep review of what changed (see help{c:review}). Failing lines only. Run check after every code change, review before every commit and push.",
 	"compile": "compile{path,target:linux|windows|android,out,release}: runnable files into out (default <project>/dist/<target>): Go, Gradle (.apk), Flutter, Rust, CMake/Make/C/C++, .NET, Electron, Python; one source file works too.",
 	"test":    "test{path,name}: run the tests (only those matching name); failing lines only.",
 	"outline": "outline{path,name}: functions/types with line numbers for a file or project (or owner/name[@ref][/sub]); name filters. Read only the lines you need after.",

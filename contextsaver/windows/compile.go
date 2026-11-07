@@ -293,7 +293,7 @@ func compilePlan(root, file, target, out, only string, release bool) (compileJob
 		if release {
 			task = "assembleRelease"
 		}
-		var env []string
+		env := ckJavaEnv()
 		if sdk := androidSDK(); sdk != "" && os.Getenv("ANDROID_HOME") == "" {
 			env = append(env, "ANDROID_HOME="+sdk)
 		}

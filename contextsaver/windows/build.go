@@ -44,7 +44,7 @@ func buildPlan(root, only string, testsToo bool) ([]buildStep, string) {
 		if testsToo {
 			tasks = append(tasks, "testDebugUnitTest")
 		}
-		steps = append(steps, buildStep{"gradle " + strings.Join(tasks, " "), root, nil, gw, append(tasks, "--console=plain", "-q", "--offline")})
+		steps = append(steps, buildStep{"gradle " + strings.Join(tasks, " "), root, ckJavaEnv(), gw, append(tasks, "--console=plain", "-q", "--offline")})
 	} else if want("go") && has("go.mod") {
 		kinds = append(kinds, "go")
 		// A root with .go files is the program itself; ./... would also sweep
