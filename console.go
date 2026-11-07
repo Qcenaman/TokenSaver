@@ -44,6 +44,9 @@ func waitEnter(msg string, timeout time.Duration) {
 }
 
 func installPath() string {
+	if localMode {
+		return localInstallPath()
+	}
 	if !isWin {
 		return filepath.Join(appRoot(), "app", "tokensaver")
 	}
@@ -51,6 +54,10 @@ func installPath() string {
 }
 
 func consoleMenu() {
+	if localMode {
+		localConsoleMenu()
+		return
+	}
 	exe, _ := os.Executable()
 	if !samePath(exe, installPath()) {
 		fmt.Printf("TokenSaver %s\n\n", appVersion)
@@ -191,6 +198,10 @@ func editClaudeConfig(path string, edit func(servers map[string]any)) error {
 }
 
 func consoleInstall() {
+	if localMode {
+		localConsoleInstall()
+		return
+	}
 	target := installPath()
 	exe, _ := os.Executable()
 	if !samePath(exe, target) {
@@ -271,6 +282,10 @@ func consoleInstall() {
 }
 
 func consoleUninstall() {
+	if localMode {
+		localConsoleUninstall()
+		return
+	}
 	for _, p := range claudeConfigPaths() {
 		if !exists(p) {
 			continue
@@ -318,7 +333,10 @@ func configHasEntry(path, target string) bool {
 	if json.Unmarshal(b, &m) != nil {
 		return false
 	}
-	e, ok := m.MCPServers["tokensaver"]
+	if _, old := m.MCPServers["claudessistent"]; old {
+		return false
+	}
+	e, ok := m.MCPServers[appName()]
 	return ok && samePath(e.Command, target) && len(e.Args) == 1 && e.Args[0] == "mcp"
 }
 

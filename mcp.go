@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -20,11 +21,23 @@ type rpcReq struct {
 
 const serverInstructions = `TokenSaver works on this Windows PC and returns short results, so use it instead of built-in file, web-fetch, browser or computer-use tools whenever it can do the job. scan/find to look around; read for just the part you need (Office, PDF, and images or scans via OCR; image mode for a small picture); run_job for file operations on any number of files; run for commands (exit code and error lines only); system for PC state; web for search and page facts; browser for JavaScript or signed-in pages; media for audio/video as text; office to create, edit, read or convert Word, Excel, PowerPoint and PDF files; rag to search the user's files by meaning and keep or recall memory notes across chats; window to read on-screen text and click, type, scroll or use the clipboard instead of screenshots; phone for the user's Android phone (its own engine: files, shell, screen as text, apps, notifications); local_ai to have the PC's own model read, describe or sort many files and images. Dry-run deletes, renames and overwrites. To look at any GitHub repo's code, pass owner/name as the path to find/read/check/outline/git compare; don't clone it yourself.`
 
+func instructions() string {
+	if localMode {
+		return localInstructions + "\n" + aboutCard()
+	}
+	return platformText(serverInstructions)
+}
+
 func serveMCP(in io.Reader, out io.Writer) {
 	initUpdateNotice()
 	resumeNotifier()
 	go aiEnsureWatcher()
 	go repoSweep()
+	if localMode {
+		wctx, stopWatcher := context.WithCancel(context.Background())
+		startIdleWatcher(wctx)
+		defer func() { stopWatcher(); idleSweep() }()
+	}
 	sc := bufio.NewScanner(in)
 	sc.Buffer(make([]byte, 1<<20), 64<<20)
 	var wmu sync.Mutex
@@ -34,6 +47,7 @@ func serveMCP(in io.Reader, out io.Writer) {
 		out.Write(append(b, '\n'))
 		wmu.Unlock()
 	}
+	mcpSend = send
 	var wg sync.WaitGroup
 	for sc.Scan() {
 		line := bytes.TrimSpace(sc.Bytes())
@@ -65,8 +79,15 @@ func handleRPC(req rpcReq) map[string]any {
 	case "initialize":
 		var p struct {
 			ProtocolVersion string `json:"protocolVersion"`
+			ClientInfo      struct {
+				Name    string `json:"name"`
+				Version string `json:"version"`
+			} `json:"clientInfo"`
 		}
 		json.Unmarshal(req.Params, &p)
+		if localMode {
+			noteClient(p.ClientInfo.Name, p.ClientInfo.Version)
+		}
 		v := p.ProtocolVersion
 		if v == "" {
 			v = "2025-06-18"
@@ -74,17 +95,24 @@ func handleRPC(req rpcReq) map[string]any {
 		resp["result"] = map[string]any{
 			"protocolVersion": v,
 			"capabilities":    map[string]any{"tools": map[string]any{"listChanged": false}},
-			"serverInfo":      map[string]any{"name": "tokensaver", "version": appVersion},
-			"instructions":    platformText(serverInstructions),
+			"serverInfo":      map[string]any{"name": appName(), "version": appVersion},
+			"instructions":    instructions(),
 		}
 	case "ping":
 		resp["result"] = map[string]any{}
 	case "tools/list":
-		resp["result"] = map[string]any{"tools": platformToolDefs()}
+		if localMode {
+			resp["result"] = map[string]any{"tools": []json.RawMessage{compactTool}}
+		} else {
+			resp["result"] = map[string]any{"tools": platformToolDefs()}
+		}
 	case "tools/call":
 		var p struct {
 			Name      string          `json:"name"`
 			Arguments json.RawMessage `json:"arguments"`
+			Meta      struct {
+				ProgressToken any `json:"progressToken"`
+			} `json:"_meta"`
 		}
 		if err := json.Unmarshal(req.Params, &p); err != nil {
 			resp["error"] = map[string]any{"code": -32602, "message": "bad params"}
@@ -93,7 +121,14 @@ func handleRPC(req rpcReq) map[string]any {
 		if len(p.Arguments) == 0 || string(p.Arguments) == "null" {
 			p.Arguments = json.RawMessage("{}")
 		}
-		text, imgs, err := callTool(p.Name, p.Arguments)
+		var text string
+		var imgs []toolImage
+		var err error
+		if p.Name == "pc" {
+			text, imgs, err = callCompactP(p.Arguments, progressFunc(p.Meta.ProgressToken))
+		} else {
+			text, imgs, err = callTool(p.Name, p.Arguments)
+		}
 		isErr := err != nil
 		if isErr {
 			text, imgs = err.Error(), nil
@@ -138,6 +173,8 @@ func callTool(name string, args json.RawMessage) (out string, imgs []toolImage, 
 		defer func() { out = fixOut(out) }()
 	}
 	switch name {
+	case "pc":
+		return callCompact(args)
 	case "scan":
 		out, err = toolScan(args)
 	case "find":

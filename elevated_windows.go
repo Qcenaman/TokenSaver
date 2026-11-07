@@ -735,3 +735,33 @@ func decodeTaskXML(b []byte) string {
 	}
 	return string(b)
 }
+
+func helperInstalled() bool { return taskInstalled() }
+
+// helperHowTo: the one message about a missing admin helper (it can't install itself:
+// that takes the user's one "Yes" in Windows' permission prompt).
+func helperHowTo() string {
+	return "The admin helper isn't installed, so commands that need admin (installing programs, system changes) won't work. " +
+		"To install it once: press Win+R, paste  \"" + installPath() + "\" install-helper  and press Enter, then click Yes in Windows' prompt."
+}
+
+// startHelper starts the admin helper (first step of the "Local AI" icon).
+func startHelper() string {
+	if !taskInstalled() {
+		return "⚠ " + helperHowTo()
+	}
+	if pipeUp() {
+		return "Admin helper running"
+	}
+	quietCmd("schtasks", "/Run", "/TN", elevTaskName).Run()
+	for i := 0; i < 40 && !pipeUp(); i++ {
+		time.Sleep(250 * time.Millisecond)
+	}
+	if pipeUp() {
+		return "Admin helper started"
+	}
+	return "Admin helper didn't start"
+}
+
+// stopHelper: TokenSaver's helper is shared with Claude, so local mode leaves it running.
+func stopHelper() string { return "" }

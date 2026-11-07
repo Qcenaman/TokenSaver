@@ -239,14 +239,20 @@ func toolFind(raw json.RawMessage) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	nameMatch := func(string) bool { return true }
+	nameMatch := func(name, rel string) bool { return true }
 	if a.Name != "" {
-		if strings.ContainsAny(a.Name, "*?[") {
+		if isPathGlob(a.Name) {
+			re, err := globRe(a.Name)
+			if err != nil {
+				return "", fmt.Errorf("bad name glob: %v", err)
+			}
+			nameMatch = func(name, rel string) bool { return re.MatchString(filepath.ToSlash(rel)) }
+		} else if strings.ContainsAny(a.Name, "*?[") {
 			pats := splitPatterns(a.Name)
-			nameMatch = func(n string) bool { return matchPats(pats, n, n) }
+			nameMatch = func(n, _ string) bool { return matchPats(pats, n, n) }
 		} else {
 			want := strings.ToLower(a.Name)
-			nameMatch = func(n string) bool { return strings.Contains(strings.ToLower(n), want) }
+			nameMatch = func(n, _ string) bool { return strings.Contains(strings.ToLower(n), want) }
 		}
 	}
 	var lineMatch func(string) bool
@@ -290,6 +296,14 @@ func toolFind(raw json.RawMessage) (string, error) {
 		}
 		roots = append(roots, root)
 	}
+	ignored := map[string]bool{}
+	if !a.All {
+		for _, r := range roots {
+			for k := range gitIgnored(r) {
+				ignored[k] = true
+			}
+		}
+	}
 	var (
 		mu                 sync.Mutex
 		out                []string
@@ -322,14 +336,14 @@ func toolFind(raw json.RawMessage) (string, error) {
 				if !f.recursive || isTrash(name) || !f.dirOK(name, rel) || checkReadable(q) != nil {
 					continue
 				}
-				if !a.All && isHeavyDir(name, q) {
+				if !a.All && (isHeavyDir(name, q) || isBuildOutDir(name, q) || ignored[pathKey(q)]) {
 					skipped.Add(1)
 					continue
 				}
 				sub = append(sub, q)
 				continue
 			}
-			if !nameMatch(name) {
+			if !nameMatch(name, rel) || ignored[pathKey(q)] {
 				continue
 			}
 			fi, e := d.Info()
@@ -375,7 +389,7 @@ func toolFind(raw json.RawMessage) (string, error) {
 		b.WriteString("\nStopped after 40s; results are partial. Narrow path, or add name/include.")
 	}
 	if n := skipped.Load(); n > 0 {
-		fmt.Fprintf(&b, "\n(skipped %s cache/tool folders like node_modules, .git, venvs, Temp; all:true searches them)", hc(n))
+		fmt.Fprintf(&b, "\n(skipped %s cache/build/gitignored folders like node_modules, .git, dist, Temp; all:true searches them)", hc(n))
 	}
 	if lineMatch != nil {
 		fmt.Fprintf(&b, "\n(searched inside %s files)", hc(scanned.Load()))
@@ -711,6 +725,9 @@ var heavyDirNames = map[string]bool{
 func isHeavyDir(name, full string) bool {
 	if heavyDirNames[strings.ToLower(name)] {
 		return true
+	}
+	if strings.EqualFold(name, "repos") && appHome != "" && samePath(full, reposDir()) {
+		return true // temporary GitHub copies
 	}
 	if isWin {
 		l := strings.ToLower(full)

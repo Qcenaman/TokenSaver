@@ -32,6 +32,7 @@ type gitArgs struct {
 	NoPush   bool     `json:"no_push"`
 	DryRun   bool     `json:"dry_run"`
 	Pair     bool     `json:"pair"`
+	Update   any      `json:"update"`
 	MaxChars int      `json:"max_chars"`
 	Wait     *int     `json:"wait_seconds"`
 }
@@ -209,6 +210,9 @@ func toolGit(raw json.RawMessage) (res string, rerr error) {
 		maxChars = 6000
 	}
 
+	if action == "login" || action == "signin" || action == "auth" {
+		return gitLogin()
+	}
 	if action == "clone" {
 		return gitClone(a)
 	}
@@ -239,6 +243,8 @@ func toolGit(raw json.RawMessage) (res string, rerr error) {
 	net := 5 * time.Minute
 
 	switch action {
+	case "ci", "actions":
+		return gitCI(root, a)
 	case "status":
 		out, _, err := gitExec(root, 30*time.Second, "status", "--short", "--branch")
 		if err != nil {
@@ -396,12 +402,19 @@ func toolGit(raw json.RawMessage) (res string, rerr error) {
 			return b.String(), err
 		}
 		b.WriteString(p)
+		if localMode { // a local model has no workflow of its own to publish it
+			r, err := publishRelease(root, v, a.Notes)
+			if err != nil {
+				return b.String(), err
+			}
+			b.WriteString("\n" + r)
+		}
 		return b.String(), nil
 
 	case "handoff":
 		return gitHandoff(root, a, maxChars)
 	}
-	return "", fmt.Errorf("unknown action %q (status, log, diff, compare, commit, push, pull, clone, release, handoff)", action)
+	return "", fmt.Errorf("unknown action %q (status, log, diff, compare, commit, push, pull, clone, release, handoff, ci, login)", action)
 }
 
 func firstErr(out string, err error) string {

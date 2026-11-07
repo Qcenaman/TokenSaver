@@ -1,9 +1,9 @@
 name: test
 on:
   push:
-    paths-ignore: ['contextsaver/**', 'mobile/**', '.github/workflows/contextsaver-*.yml', '.github/workflows/mobile.yml']
+    paths-ignore: ['mobile/**', '.github/workflows/mobile.yml']
   pull_request:
-    paths-ignore: ['contextsaver/**', 'mobile/**']
+    paths-ignore: ['mobile/**']
 jobs:
   test:
     strategy:

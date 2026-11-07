@@ -39,7 +39,17 @@ const (
 
 const defaultEmbedModel = "Qwen/Qwen3-Embedding-0.6B-GGUF:Q8_0"
 
-func ragDir() string { return filepath.Join(appHome, "rag") }
+// ragDir: the search index and memory notes, shared by both modes so Claude and the
+// local model search the same index and notes.
+func ragDir() string {
+	if cfg.RagDir != "" {
+		return cfg.RagDir
+	}
+	if localMode {
+		return filepath.Join(tokenSaverRoot(), "data", "rag")
+	}
+	return filepath.Join(appHome, "rag")
+}
 
 type ragConfig struct {
 	Roots   []string `json:"roots"`
@@ -127,7 +137,7 @@ func ragExclusions(c ragConfig) ragExcl {
 	for k := range ragSkipNames {
 		e.names[k] = true
 	}
-	e.paths = append(e.paths, appHome, ragDir())
+	e.paths = append(e.paths, appHome, ragDir(), appRoot(), tokenSaverRoot())
 	if cfg.AIScript != "" {
 		e.paths = append(e.paths, filepath.Join(filepath.Dir(cfg.AIScript), "models"))
 	}
@@ -1154,7 +1164,7 @@ func ragGPUBlocked() (bool, string) {
 	if ps, err := procs(); err == nil {
 		for _, p := range ps {
 			n, c := strings.ToLower(p.name), strings.ToLower(p.cmd)
-			if strings.Contains(c, "tokensaver") || strings.Contains(c, "comfy-mcp") {
+			if strings.Contains(c, "tokensaver") || strings.Contains(c, "contextsaver") || strings.Contains(c, "comfy-mcp") {
 				continue
 			}
 			for _, a := range gpuApps {

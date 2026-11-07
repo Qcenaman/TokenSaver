@@ -17,10 +17,31 @@ func main() {
 	}
 	switch args[0] {
 	case "mcp":
+		for i := 1; i+1 < len(args); i++ {
+			if args[i] == "--for" {
+				setProfile(args[i+1])
+			}
+		}
 		serveMCP(os.Stdin, os.Stdout)
+	case "start":
+		if len(args) > 1 {
+			os.Exit(consoleStartModel(args[1]))
+		}
+		os.Exit(consoleStartLocalAI())
+	case "stop":
+		os.Exit(consoleStopLocalAI())
+	case "model":
+		os.Exit(consoleModel(args[1:]))
+	case "approvals":
+		os.Exit(consoleApprovals(args[1:]))
+	case "chat":
+		os.Exit(consoleChat(args[1:]))
+	case "local-setup":
+		consoleLocalSetup()
+		waitEnter("Press Enter to close.", 0)
 	case "run":
 		if len(args) < 2 {
-			fmt.Println(`usage: tokensaver run "<saved job name>"`)
+			fmt.Println("usage: " + appName() + ` run "<saved job name>"`)
 			os.Exit(2)
 		}
 		os.Exit(consoleRunSaved(args[1]))
@@ -47,11 +68,16 @@ func main() {
 	case "chats":
 		os.Exit(chatsCLI(args[1:]))
 	case "setup":
+		if localMode {
+			consoleLocalSetup()
+			waitEnter("Press Enter to close.", 0)
+			return
+		}
 		consoleSetup()
 	case "refresh-helper":
 		refreshHelper()
 	case "version":
-		fmt.Println("tokensaver", appVersion, "("+runtime.GOOS+")")
+		fmt.Println(appName(), appVersion, "("+runtime.GOOS+")")
 	case "restart-claude":
 		os.Exit(restartClaudeNow())
 	case "terminal":

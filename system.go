@@ -162,6 +162,15 @@ var toolChecks = []toolCheck{
 	{name: "nvcc", args: []string{"--version"}, pick: "release"},
 	{name: "ffmpeg", args: []string{"-version"}},
 	{name: "winget", args: []string{"--version"}},
+	{name: "go", args: []string{"version"}},
+	{name: "gh", args: []string{"--version"}, extra: []string{`%ProgramFiles%\GitHub CLI\gh.exe`}},
+	{name: "ctags", args: []string{"--version"}},
+	{name: "gcc", args: []string{"--version"}},
+	{name: "cargo", args: []string{"--version"}, extra: []string{`%USERPROFILE%\.cargo\bin\cargo.exe`}},
+	{name: "java", args: []string{"-version"}},
+	{name: "llama-server", args: []string{"--version"}, extra: []string{`D:\llama.cpp\llama-server.exe`}},
+	{name: "tesseract", args: []string{"--version"}, extra: []string{`%ProgramFiles%\Tesseract-OCR\tesseract.exe`}},
+	{name: "adb", args: []string{"version"}, extra: []string{`%LOCALAPPDATA%\Android\Sdk\platform-tools\adb.exe`}},
 }
 
 func init() {
@@ -297,7 +306,7 @@ func portList(port int) (string, error) {
 var protectedProcs = map[string]bool{
 	"system": true, "idle": true, "registry": true, "smss.exe": true, "csrss.exe": true, "wininit.exe": true,
 	"winlogon.exe": true, "services.exe": true, "lsass.exe": true, "svchost.exe": true, "explorer.exe": true,
-	"dwm.exe": true, "fontdrvhost.exe": true, "sihost.exe": true, "claude.exe": true, "tokensaver.exe": true,
+	"dwm.exe": true, "fontdrvhost.exe": true, "sihost.exe": true, "claude.exe": true, "tokensaver.exe": true, "contextsaver.exe": true, "contextsaver": true,
 	"init": true, "systemd": true, "systemd-journald": true, "systemd-logind": true, "systemd-udevd": true,
 	"dbus-daemon": true, "dbus-broker": true, "xorg": true, "xwayland": true, "gnome-shell": true, "gdm": true,
 	"gdm3": true, "sddm": true, "kwin_wayland": true, "kwin_x11": true, "plasmashell": true, "sshd": true,

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -29,6 +30,27 @@ type Config struct {
 	AIIdleMinutes int      `json:"ai_idle_minutes,omitempty"` // idle time before TokenSaver stops a server it started (default 15)
 	AIKeepRunning bool     `json:"ai_keep_running,omitempty"` // pin: never auto-stop the local AI server
 	NotifyRepo    string   `json:"notify_repo,omitempty"`
+
+	// local mode (serving a local model, as ContextSaver did)
+	Models              map[string]string `json:"models,omitempty"`
+	MaxOut              int               `json:"max_out,omitempty"`
+	Frontend            string            `json:"frontend,omitempty"`       // anythingllm | lmstudio; empty = AnythingLLM if installed
+	Approval            string            `json:"approval,omitempty"`       // "dangerous" (default): only dangerous calls wait in RemoteAI; "wait"/"client": every risky call; "confirm": in-chat token
+	ApprovalToken       string            `json:"approval_token,omitempty"` // the approval server's bearer token
+	ApprovalPort        int               `json:"approval_port,omitempty"`  // default 1235
+	LMSToken            string            `json:"lms_token,omitempty"`      // LM Studio API token
+	ToolCallLimit       int               `json:"tool_call_limit_seconds,omitempty"`   // longer pc calls continue in the background (default 50 for LM Studio)
+	ApprovalWaitSeconds int               `json:"approval_wait_seconds,omitempty"`     // approval "wait": how long a call blocks (default 600)
+	ApprovalWaitCap     int               `json:"approval_wait_cap_seconds,omitempty"` // below the client's tool-call timeout: then fall back to "call again"
+	ApprovalExempt      []string          `json:"approval_exempt_clients,omitempty"`   // MCP clients that keep the in-chat confirm (default cline, anythingllm)
+	ClineDir            string            `json:"cline_dir,omitempty"`                 // Cline's CLINE_DIR (default: env CLINE_DIR)
+	LMSBind             string            `json:"lms_bind,omitempty"`                  // lms server start --bind (0.0.0.0 for RemoteAI over Tailscale)
+	ApprovalBind        string            `json:"approval_bind,omitempty"`             // default 127.0.0.1; 0.0.0.0 for RemoteAI over Tailscale
+	RagDir              string            `json:"rag_dir,omitempty"`
+	KeepModelRunning    bool              `json:"keep_model_running,omitempty"` // pin: nothing auto-stops the model server
+	ModelIdleMinutes    int               `json:"model_idle_minutes,omitempty"` // idle stop of model servers local mode started (default 15)
+	Drives              map[string]string `json:"drives,omitempty"`             // Linux: Windows drive letter -> mount folder, e.g. {"D": "/mnt/d"}
+	LlamaServer         string            `json:"llama_server,omitempty"`       // Linux llama-server (default: ~/llama.cpp, then PATH)
 }
 
 var (
@@ -39,6 +61,17 @@ var (
 // appRoot is the one folder TokenSaver keeps everything in: the program, its data,
 // the saved-job shortcuts and the admin log. Nothing goes on the Desktop or elsewhere.
 func appRoot() string {
+	if localMode {
+		// local mode keeps ContextSaver's folder: its config, models, approvals and index
+		if v := os.Getenv("CONTEXTSAVER_ROOT"); v != "" {
+			return v
+		}
+		if isWin {
+			return `D:\Claude Apps\ContextSaver`
+		}
+		h, _ := os.UserHomeDir()
+		return filepath.Join(h, ".contextsaver")
+	}
 	if v := os.Getenv("TOKENSAVER_ROOT"); v != "" {
 		return v
 	}
@@ -51,6 +84,9 @@ func appRoot() string {
 
 func initApp() {
 	appHome = os.Getenv("TOKENSAVER_HOME")
+	if localMode {
+		appHome = os.Getenv("CONTEXTSAVER_HOME")
+	}
 	if appHome == "" {
 		appHome = filepath.Join(appRoot(), "data")
 	}
@@ -63,7 +99,10 @@ func initApp() {
 		os.WriteFile(gm, []byte("module tokensaver-data\n"), 0o644)
 	}
 	if b, err := os.ReadFile(filepath.Join(appHome, "config.json")); err == nil {
-		json.Unmarshal(b, &cfg)
+		json.Unmarshal(bytes.TrimPrefix(b, []byte("\xef\xbb\xbf")), &cfg)
+	}
+	if localMode && strings.TrimSpace(cfg.Approval) == "" {
+		cfg.Approval = "dangerous" // only deleting/uninstalling/system changes ask
 	}
 	if cfg.Workers <= 0 {
 		cfg.Workers = 4
