@@ -1,6 +1,6 @@
 package main
 
-// phone: reach the AdbSaver engine on the user's Android phone and pass tool calls through.
+// phone: reach the MobileTokenSaver engine on the user's Android phone and pass tool calls through.
 // Route order: LAN (Wi-Fi) → Tailscale → adb fallback (basic shell/ui/screen) when the engine is down.
 // adb itself goes to the phone's fixed classic-TCP port over Tailscale (<tailscale-ip>:5555, kept on by
 // AdbSaver and kept connected by serve every 30 s); LAN Wireless debugging / mDNS is only a fallback.
@@ -62,8 +62,9 @@ func loadPhoneCfg() phoneConfig {
 	if c.Port == 0 {
 		c.Port = 8765
 	}
-	if c.Package == "" {
-		c.Package = "com.qcenaman.adbsaver"
+	// AdbSaver was merged into MobileTokenSaver (one phone app since its 0.2.0).
+	if c.Package == "" || c.Package == "com.qcenaman.adbsaver" {
+		c.Package = "com.qcenaman.mobiletokensaver"
 	}
 	phoneCfg, phoneLoaded = c, true
 	return c
@@ -361,6 +362,9 @@ func toolPhone(raw json.RawMessage) (string, []toolImage, error) {
 		}
 		return phoneStatus(c), nil, nil
 	case "pair":
+		if a.Token != "" {
+			c.Token = a.Token
+		}
 		return phonePair(c)
 	case "tunnel":
 		return phoneTunnel(a.Mode), nil, nil
@@ -487,7 +491,11 @@ func phonePair(c phoneConfig) (string, []toolImage, error) {
 	tok, err := adbShell(serial, 15*time.Second, "run-as "+c.Package+" cat files/token")
 	tok = strings.TrimSpace(tok)
 	if err != nil || len(tok) < 16 || strings.Contains(tok, " ") {
-		return "", nil, fmt.Errorf("could not read the token from the app (%q): is AdbSaver installed and started once?", tok)
+		// Release builds of the app can't be read with run-as: use the token the user copied from the app.
+		if len(c.Token) < 16 {
+			return "", nil, fmt.Errorf("could not read the token from the app (%q): open MobileTokenSaver, copy Token (Engine section) and run phone pair again with token set", tok)
+		}
+		tok = c.Token
 	}
 	c.Token = tok
 	if strings.HasPrefix(via, "lan") && strings.Contains(serial, ":") {
