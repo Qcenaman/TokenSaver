@@ -65,7 +65,7 @@ func toolTest(a map[string]any) (string, error) {
 		if name != "" {
 			args = append(args, "--tests", name)
 		}
-		s = buildStep{"gradle test", root, nil, filepath.Join(root, "gradlew"), args}
+		s = buildStep{"gradle test", root, ckJavaEnv(), filepath.Join(root, "gradlew"), args}
 	case has("pubspec.yaml"):
 		args := []string{"test"}
 		if name != "" {

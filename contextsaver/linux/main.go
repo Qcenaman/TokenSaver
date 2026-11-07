@@ -5,10 +5,10 @@ import (
 	"os"
 )
 
-const appVersion = "0.6.0"
+const appVersion = "0.7.0"
 
 // toolsVersion: the Windows ContextSaver release whose tools this build matches.
-const toolsVersion = "1.17.1"
+const toolsVersion = "1.20.0"
 
 func main() {
 	initApp()

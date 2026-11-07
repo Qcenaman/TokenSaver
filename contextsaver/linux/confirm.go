@@ -116,6 +116,11 @@ func riskyAction(c string, a map[string]any) string {
 		return ""
 	case "compile", "build", "test", "tests":
 		return "build or test " + str(a, "path")
+	case "review", "code_review":
+		if b, _ := a["no_test"].(bool); b {
+			return ""
+		}
+		return "review " + str(a, "path") + " (builds it and runs its tests)"
 	case "outline", "symbols", "logcat", "crash", "crashes", "login":
 		return ""
 	}
@@ -134,6 +139,9 @@ func riskyAction(c string, a map[string]any) string {
 	case "check":
 		if act == "build" || act == "test" || act == "compile" {
 			return "build and run the tests of " + str(a, "path")
+		}
+		if b, _ := a["no_test"].(bool); act == "review" && !b {
+			return "review " + str(a, "path") + " (builds it and runs its tests)"
 		}
 	case "system":
 		if act == "kill" {
