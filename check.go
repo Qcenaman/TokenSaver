@@ -909,15 +909,33 @@ type ckLintXML struct {
 	} `xml:"issue"`
 }
 
-// ckAndroid runs Android lint through the project's Gradle wrapper and reads the XML reports it writes.
-func ckAndroid(root string) ([]ckIssue, string, string) {
-	// Java's Windows selector needs a plain temp path, or Gradle fails with "Unable to establish loopback connection".
+// ckJavaEnv is the environment for Gradle and other Java tools: Java's Windows selector needs a
+// plain temp path (or Gradle fails with "Unable to establish loopback connection"), and a
+// JAVA_HOME pointing at a removed JDK is replaced by one that exists.
+func ckJavaEnv() []string {
 	jtmp := filepath.Join(os.TempDir(), "jtmp")
 	if runtime.GOOS == "windows" {
 		jtmp = filepath.Join(os.Getenv("SystemDrive")+`\`, "jtmp")
 	}
 	os.MkdirAll(jtmp, 0o755)
 	env := []string{"JAVA_TOOL_OPTIONS=-Djdk.net.unixdomain.tmpdir=" + jtmp + " -Djava.io.tmpdir=" + jtmp}
+	exe := "java"
+	if runtime.GOOS == "windows" {
+		exe = "java.exe"
+	}
+	if h := os.Getenv("JAVA_HOME"); h != "" && !ckExists(filepath.Join(h, "bin", exe)) {
+		if j := rvJava(); j != "" {
+			if home := filepath.Dir(filepath.Dir(j)); ckExists(filepath.Join(home, "bin", exe)) && ckExists(filepath.Join(home, "lib")) {
+				env = append(env, "JAVA_HOME="+home)
+			}
+		}
+	}
+	return env
+}
+
+// ckAndroid runs Android lint through the project's Gradle wrapper and reads the XML reports it writes.
+func ckAndroid(root string) ([]ckIssue, string, string) {
+	env := ckJavaEnv()
 	gw := filepath.Join(root, "gradlew")
 	if runtime.GOOS == "windows" {
 		gw += ".bat"
@@ -930,6 +948,7 @@ func ckAndroid(root string) ([]ckIssue, string, string) {
 	var out []ckIssue
 	seen := map[string]bool{}
 	reports, libs := 0, 0
+	lintFound := strings.Contains(so+se, "Lint found errors")
 	filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil
@@ -948,7 +967,9 @@ func ckAndroid(root string) ([]ckIssue, string, string) {
 			return nil
 		}
 		// an up-to-date lint task leaves its earlier report in place, which is still current
-		if info, err := d.Info(); err != nil || (code != 0 && info.ModTime().Before(start)) {
+		// a failed run's old reports are stale, unless lint itself failed the build on its findings
+		// (then an up-to-date lint task left them as they are)
+		if info, err := d.Info(); err != nil || (code != 0 && info.ModTime().Before(start) && !lintFound) {
 			return nil
 		}
 		b, err := os.ReadFile(p)

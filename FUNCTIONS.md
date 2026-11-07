@@ -1,6 +1,6 @@
 # TokenSaver functions
 
-**Version 1.27.2**
+**Version 1.28.0**
 
 Windows PC helper that Claude hands work to, so the steps run on the PC instead of costing tokens in the chat. Runs as an MCP server in Claude desktop. Everything it keeps is in `D:\Claude Apps\TokenSaver`.
 
@@ -24,13 +24,22 @@ Windows PC helper that Claude hands work to, so the steps run on the PC instead 
 - **serve** / **install-link** â€” the phone reaches this PC's tools the same way: a token-protected HTTP front (port 8766) run by the "TokenSaver Link" task, reachable over LAN, Tailscale, a forwarded public port (`phone public setup`) or a cloudflared tunnel (`phone tunnel start`, works behind CGNAT, no Tailscale needed); the phone gets the current routes at every report
 - **git** â€” Git in one call, never as admin, GitHub sign-in straight to the browser: status, log, diff, commit, push, pull, clone (updates an existing clone instead of failing), compare (two folders or repo versions file by file: only on one side, changed lines, same; pairs x_windows.go with x_linux.go), release (bumps the version, adds the notes to this file, commits and pushes), handoff (notes for another project from the commits and diff, summarized by the local AI)
 - **outline** â€” functions and types with line numbers for a code file or project (universal-ctags, regex fallback), so only the needed lines get read
-- **check** â€” lint and type-check code (Ruff + mypy for Python, ESLint + tsc for JS/TS, go vet + staticcheck for Go, Android lint for Gradle projects; skips gitignored files) on the PC, on the phone over ADB, or in a GitHub repo; safe autofixes with fix; build: compile + run the project's tests and return only the failing lines
+- **check** â€” lint and type-check code (Ruff + mypy for Python, ESLint + tsc for JS/TS, go vet + staticcheck for Go, Android lint for Gradle projects; skips gitignored files) on the PC, on the phone over ADB, or in a GitHub repo; safe autofixes with fix; build: compile + run the project's tests and return only the failing lines; review: a deep code review made for AI-written code (security, secrets, vulnerable or made-up packages, CI workflows, scripts, Kotlin, complexity, build + tests, unfinished or fake work) of the latest changes, with a BLOCK/FIX/PASS verdict
 - **window** â€” read on-screen text without screenshots: list windows, a window's text (UI Automation, works on Chrome/Electron/Steam), OCR of a window or area, copy-all via clipboard (restored), do: click buttons and fill fields by name, click on OCR text, click/move/drag at a position, scroll, hold keys, press keys, several steps per call (never in Claude's own windows); OCR with positions; clipboard get/set; small screenshot of a window or area, or a local AI answer about it instead; long text saved to a file, optional local AI summary; wait for a window or text to show; changes-only re-reads
 - **Terminal** (double-click TokenSaver) â€” record or build macros, pick screen spots and colors, set your own triggers (hotkey, or a color showing/changing in a screen area â†’ click or macro), run saved jobs and any tool; Ctrl+Alt+Esc stops
 
 Also: GitHub repos as paths (owner/name[@ref][/sub] in find, read, scan, check, outline and git) read from a temporary copy TokenSaver keeps on the PC, updated as needed and removed after a day unused, so Claude never clones repos itself; tells Claude desktop to prefer TokenSaver over its built-in tools, undo for file jobs, job-end signals through GitHub (no polling), protected system folders; the terminal also reconnects Claude desktop and installs or removes the admin helper.
 
 ## What's new
+### 1.28.0
+- check action review: a deep code review made for code written by AI models (fine for any code). On top of the linters (stricter Ruff rules) it runs golangci-lint (gosec, nilerr, bodyclose, errorlint and more), Opengrep security rules with taint tracking, gitleaks for secrets, OSV-Scanner for vulnerable dependencies, a made-up / brand-new package-name check (slopsquatting), actionlint + zizmor for GitHub workflows, ShellCheck, PSScriptAnalyzer, detekt for Kotlin, lizard for complexity, and the project's own build + tests
+- Checks of its own for unfinished or fake work: "rest of the code" elisions, stubs that panic or throw "not implemented", placeholder values, hollow tests (no assertion), assertions that can't fail, skipped or .only tests, removed tests and assertions, deleted test files, new lint suppressions, copied blocks, chat text pasted into code, conflict markers, secret files, build output and big files added to git
+- Reviews only what changed in a git repo (uncommitted changes, else the last commit; base: a branch, tag or commit; all:true for every file); type and build errors count when their file changed, failing tests always
+- Verdict BLOCK / FIX / PASS with errors and warnings in the change; findings on one line are folded together; full report in checker\reports and checker\last-review.json
+- ai:true adds a second look by the local AI on the changed lines; claims that don't match the code are dropped
+- Review tools are pinned and checksum-verified, downloaded on first use or with check action:setup
+- Fix: Gradle builds (check build and review) get the Windows "Unable to establish loopback connection" fix Android lint already had, and a JAVA_HOME pointing at a removed JDK is replaced by one that exists
+- Fix: Android lint findings are reported again when lint fails the build on a second run (its up-to-date reports were taken for stale ones)
 ### 1.27.2
 - phone now talks to MobileTokenSaver (AdbSaver was merged into it); an existing AdbSaver setup switches over by itself, then run phone pair once
 - phone pair accepts token (copied from the app's Engine section) when it can't read it over adb
@@ -142,7 +151,7 @@ Also: GitHub repos as paths (owner/name[@ref][/sub] in find, read, scan, check, 
 - **phone** â€” your Android phone through the AdbSaver engine on it (same tools: find, read, write, scan, run, ui, screen, apps, notifications, system, web, local_ai, saved) over the LAN, Tailscale from anywhere, or plain adb when the engine is down; status, pair, config, adb
 - **serve** / **install-link** â€” the phone reaches this PC's tools the same way: a token-protected HTTP front on the Tailscale address (port 8766) run by the "TokenSaver Link" task
 - **git** â€” Git in one call, never as admin, GitHub sign-in straight to the browser: status, log, diff, commit, push, pull, clone, release (bumps the version, adds the notes to this file, commits and pushes), handoff (notes for another project from the commits and diff, summarized by the local AI)
-- **check** â€” lint and type-check code (Ruff + mypy for Python, ESLint + tsc for JS/TS, go vet + staticcheck for Go, Android lint for Gradle projects; skips gitignored files) on the PC, on the phone over ADB, or in a GitHub repo; safe autofixes with fix; build: compile + run the project's tests and return only the failing lines
+- **check** â€” lint and type-check code (Ruff + mypy for Python, ESLint + tsc for JS/TS, go vet + staticcheck for Go, Android lint for Gradle projects; skips gitignored files) on the PC, on the phone over ADB, or in a GitHub repo; safe autofixes with fix; build: compile + run the project's tests and return only the failing lines; review: a deep code review made for AI-written code (security, secrets, vulnerable or made-up packages, CI workflows, scripts, Kotlin, complexity, build + tests, unfinished or fake work) of the latest changes, with a BLOCK/FIX/PASS verdict
 ### 1.13.0
 - **office** tool: create, edit, read, convert Word/Excel/PowerPoint/PDF
 - **read**: Excel shows every sheet with cell refs and values; old .doc/.xls/.ppt readable
