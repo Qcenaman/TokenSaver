@@ -46,7 +46,7 @@ func appRoot() string {
 		return `D:\Claude Apps\TokenSaver`
 	}
 	h, _ := os.UserHomeDir()
-	return filepath.Join(h, ".tokensaver")
+	return filepath.Join(h, "Claude Apps", "TokenSaver")
 }
 
 func initApp() {
@@ -125,6 +125,14 @@ func hasPathPrefix(p, prefix string) bool {
 	return strings.HasPrefix(p, prefix)
 }
 
+func linuxSystemRoot(p string) bool {
+	switch p {
+	case "/bin", "/boot", "/etc", "/lib", "/lib64", "/proc", "/sbin", "/sys", "/usr", "/snap", "/var/lib":
+		return true
+	}
+	return false
+}
+
 func blockedRoots() []string {
 	var r []string
 	if isWin {
@@ -134,7 +142,7 @@ func blockedRoots() []string {
 			}
 		}
 	} else {
-		r = append(r, "/bin", "/boot", "/dev", "/etc", "/lib", "/proc", "/sbin", "/sys", "/usr")
+		r = append(r, "/bin", "/boot", "/dev", "/etc", "/lib", "/lib64", "/proc", "/sbin", "/sys", "/usr", "/snap", "/var/lib")
 	}
 	if h, err := os.UserHomeDir(); err == nil {
 		r = append(r, filepath.Join(h, ".ssh"), filepath.Join(h, ".gnupg"))
@@ -171,7 +179,20 @@ func checkAllowed(p string) error {
 }
 
 // checkReadable is checkAllowed, except Program Files may be read (never written).
+// On Linux the system folders (/etc, /usr, /proc, /boot...) may be read too; devices,
+// ~/.ssh, ~/.gnupg and the user's extra blocked folders stay closed.
 func checkReadable(p string) error {
+	if !isWin {
+		if hasPathPrefix(p, "/dev") {
+			return fmt.Errorf("%s is inside a protected system folder", p)
+		}
+		for _, b := range blockedRoots() {
+			if hasPathPrefix(p, b) && !linuxSystemRoot(b) {
+				return fmt.Errorf("%s is inside a protected folder", p)
+			}
+		}
+		return nil
+	}
 	if isWin {
 		for _, v := range []string{"ProgramFiles", "ProgramFiles(x86)", "ProgramW6432"} {
 			if s := os.Getenv(v); s != "" && hasPathPrefix(p, s) {

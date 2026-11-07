@@ -211,9 +211,6 @@ func imagePreview(p string, maxPx int) (*preview, error) {
 			return pv, nil
 		}
 	}
-	if !isWin {
-		return nil, fmt.Errorf("can't open %s images here", ext)
-	}
 	var pg ocrPage
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
@@ -244,9 +241,6 @@ func jpegPreview(jpg []byte, ow, oh, maxPx int) (*preview, error) {
 
 // pdfPagePreview renders one PDF page with Windows' PDF renderer.
 func pdfPagePreview(p string, page, maxPx int) (*preview, error) {
-	if !isWin {
-		return nil, errors.New("showing PDF pages needs Windows")
-	}
 	var pg ocrPage
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()

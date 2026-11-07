@@ -373,11 +373,11 @@ func stepRename(j *Job, st *Step, res *StepResult) error {
 				it.target = uniqueRename(it.target, taken, moving)
 				k = normCase(it.target)
 			case "skip":
-				clashes = append(clashes, it.e.src+" â†’ "+filepath.Base(it.target))
+				clashes = append(clashes, it.e.src+" → "+filepath.Base(it.target))
 				it.skip = true
 				continue
 			default:
-				clashes = append(clashes, it.e.src+" â†’ "+filepath.Base(it.target))
+				clashes = append(clashes, it.e.src+" → "+filepath.Base(it.target))
 			}
 		}
 		taken[k]++
@@ -408,7 +408,7 @@ func stepRename(j *Job, st *Step, res *StepResult) error {
 			if i >= 8 {
 				break
 			}
-			res.sample(it.e.info.Name() + " â†’ " + filepath.Base(it.target))
+			res.sample(it.e.info.Name() + " → " + filepath.Base(it.target))
 		}
 		return nil
 	}

@@ -65,7 +65,7 @@ func prepReq(req *http.Request) {
 func httpErr(resp *http.Response) error {
 	switch resp.StatusCode {
 	case 401, 403:
-		return permErr{fmt.Sprintf("access denied (%d): this file needs a login or accepted license; set HF_TOKEN or CIVITAI_TOKEN as a Windows environment variable and restart Claude", resp.StatusCode)}
+		return permErr{fmt.Sprintf("access denied (%d): this file needs a login or accepted license; set HF_TOKEN or CIVITAI_TOKEN as an environment variable (Windows: user variable; Linux: ~/.profile) and restart Claude", resp.StatusCode)}
 	case 404:
 		return permErr{"not found (404): check the URL"}
 	}

@@ -85,6 +85,10 @@ func sysInfo() string {
 		defer wg.Done()
 		out, err := runQuiet(15*time.Second, "nvidia-smi", "--query-gpu=name,driver_version,memory.total,memory.used,utilization.gpu,temperature.gpu", "--format=csv,noheader")
 		if err != nil {
+			if g := otherGPUInfo(); g != "" {
+				gpu = "GPU: " + g
+				return
+			}
 			gpu = "GPU: no NVIDIA driver found (nvidia-smi didn't run)"
 			return
 		}
@@ -92,7 +96,7 @@ func sysInfo() string {
 		for _, l := range strings.Split(out, "\n") {
 			f := strings.Split(l, ",")
 			if len(f) >= 6 {
-				gs = append(gs, fmt.Sprintf("%s, driver %s, %s VRAM (%s used), %s busy, %sÂ°C",
+				gs = append(gs, fmt.Sprintf("%s, driver %s, %s VRAM (%s used), %s busy, %s°C",
 					strings.TrimSpace(f[0]), strings.TrimSpace(f[1]), strings.TrimSpace(f[2]), strings.TrimSpace(f[3]), strings.TrimSpace(f[4]), strings.TrimSpace(f[5])))
 			}
 		}
@@ -118,7 +122,7 @@ func sysInfo() string {
 	lines = append(lines, platformInfo()...)
 	wg.Wait()
 	if cuda != "" {
-		gpu += " Â· driver supports CUDA up to " + cuda
+		gpu += " · driver supports CUDA up to " + cuda
 	}
 	lines = append(lines, gpu)
 	var found, missing []string
@@ -134,7 +138,7 @@ func sysInfo() string {
 	} else {
 		missing = append(missing, "7-Zip")
 	}
-	lines = append(lines, "Tools: "+strings.Join(found, " Â· "))
+	lines = append(lines, "Tools: "+strings.Join(found, " · "))
 	if len(missing) > 0 {
 		lines = append(lines, "Not found: "+strings.Join(missing, ", "))
 	}
@@ -158,6 +162,26 @@ var toolChecks = []toolCheck{
 	{name: "nvcc", args: []string{"--version"}, pick: "release"},
 	{name: "ffmpeg", args: []string{"-version"}},
 	{name: "winget", args: []string{"--version"}},
+}
+
+func init() {
+	if !isWin {
+		toolChecks = []toolCheck{
+			{name: "python3", args: []string{"--version"}},
+			{name: "git", args: []string{"--version"}},
+			{name: "uv", args: []string{"--version"}},
+			{name: "conda", args: []string{"--version"}, extra: []string{"~/anaconda3/bin/conda", "~/miniconda3/bin/conda", "~/miniforge3/bin/conda", "/opt/conda/bin/conda"}},
+			{name: "node", args: []string{"--version"}},
+			{name: "nvcc", args: []string{"--version"}, pick: "release"},
+			{name: "ffmpeg", args: []string{"-version"}},
+			{name: "go", args: []string{"version"}},
+			{name: "docker", args: []string{"--version"}},
+			{name: "adb", args: []string{"version"}, pick: "Android Debug Bridge"},
+			{name: "tesseract", args: []string{"--version"}},
+			{name: "soffice", args: []string{"--version"}},
+			{name: "apt", args: []string{"--version"}},
+		}
+	}
 }
 
 func checkTool(t toolCheck) string {
@@ -227,7 +251,7 @@ func procList(filter string) (string, error) {
 		}
 		fmt.Fprintf(&b, "\n%d %s %s", p.pid, p.name, hb(p.mem))
 		if p.cmd != "" {
-			b.WriteString(" â€” " + clip(p.cmd, 200))
+			b.WriteString(" — " + clip(p.cmd, 200))
 		}
 	}
 	return b.String(), nil
@@ -256,7 +280,7 @@ func portList(port int) (string, error) {
 		if n > 60 {
 			continue
 		}
-		fmt.Fprintf(&b, "\nport %d (%s) â€” pid %d %s", l.port, l.addr, l.pid, names[l.pid])
+		fmt.Fprintf(&b, "\nport %d (%s) — pid %d %s", l.port, l.addr, l.pid, names[l.pid])
 	}
 	if n == 0 {
 		if port > 0 {
@@ -274,7 +298,10 @@ var protectedProcs = map[string]bool{
 	"system": true, "idle": true, "registry": true, "smss.exe": true, "csrss.exe": true, "wininit.exe": true,
 	"winlogon.exe": true, "services.exe": true, "lsass.exe": true, "svchost.exe": true, "explorer.exe": true,
 	"dwm.exe": true, "fontdrvhost.exe": true, "sihost.exe": true, "claude.exe": true, "tokensaver.exe": true,
-	"init": true, "systemd": true,
+	"init": true, "systemd": true, "systemd-journald": true, "systemd-logind": true, "systemd-udevd": true,
+	"dbus-daemon": true, "dbus-broker": true, "xorg": true, "xwayland": true, "gnome-shell": true, "gdm": true,
+	"gdm3": true, "sddm": true, "kwin_wayland": true, "kwin_x11": true, "plasmashell": true, "sshd": true,
+	"networkmanager": true, "pipewire": true, "wireplumber": true, "polkitd": true, "claude": true, "tokensaver": true,
 }
 
 func killProcs(pids []int, name, match string) (string, error) {

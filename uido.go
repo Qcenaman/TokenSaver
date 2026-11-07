@@ -75,6 +75,13 @@ type uiStep struct {
 }
 
 func uiaDo(w winInfo, op, name, value string) (string, error) {
+	if !isWin {
+		line, err := atspiDo(w, op, name, value)
+		if err != nil {
+			return "", err
+		}
+		return uiaDoResult(w, op, value, line)
+	}
 	script := filepath.Join(appHome, "scripts", "uiado.ps1")
 	if b, err := os.ReadFile(script); err != nil || string(b) != uiaDoScript {
 		os.MkdirAll(filepath.Dir(script), 0o755)
@@ -94,6 +101,11 @@ func uiaDo(w winInfo, op, name, value string) (string, error) {
 	}()
 	out, _ := cmd.Output()
 	line := strings.TrimSpace(strings.SplitN(string(out), "\n", 2)[0])
+	return uiaDoResult(w, op, value, line)
+}
+
+// uiaDoResult acts on the script's answer: OK, a rectangle to click, or an error.
+func uiaDoResult(w winInfo, op, value, line string) (string, error) {
 	switch {
 	case strings.HasPrefix(line, "OK"):
 		return strings.TrimPrefix(line, "OK "), nil

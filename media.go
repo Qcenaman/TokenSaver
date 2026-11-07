@@ -133,6 +133,13 @@ func ensureWhisper(ctx context.Context) (string, string, error) {
 		}
 		return nil
 	})
+	if cli == "" && !isWin {
+		c, err := linuxWhisperCLI(ctx, dir)
+		if err != nil {
+			return "", "", err
+		}
+		cli = c
+	}
 	if cli == "" {
 		var rs []struct {
 			Assets []struct {
@@ -337,7 +344,7 @@ func toolMedia(raw json.RawMessage) (string, error) {
 		return "", err
 	}
 	if _, err := exec.LookPath("ffmpeg"); err != nil {
-		return "", errors.New("ffmpeg isn't installed (winget install ffmpeg)")
+		return "", errors.New("ffmpeg isn't installed (" + installHint("ffmpeg") + ")")
 	}
 	maxc := a.MaxChars
 	if maxc <= 0 {

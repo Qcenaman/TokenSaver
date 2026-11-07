@@ -85,7 +85,12 @@ func cloudflaredExe() string {
 	return ""
 }
 
-const cloudflaredInstall = "winget install --id Cloudflare.cloudflared -e"
+var cloudflaredInstall = func() string {
+	if isWin {
+		return "winget install --id Cloudflare.cloudflared -e"
+	}
+	return "curl -L -o /tmp/cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb && sudo apt install -y /tmp/cloudflared.deb"
+}()
 
 var quickTunnelRe = regexp.MustCompile(`https://[a-z0-9-]+\.trycloudflare\.com`)
 
@@ -482,7 +487,7 @@ func phonePublicSetup(host string) string {
 // firewallAllowLink adds an inbound rule for the link port on every profile (through the admin helper).
 func firewallAllowLink(port int) string {
 	if !isWin {
-		return "firewall: open TCP " + fmt.Sprint(port) + " inbound yourself"
+		return firewallAllowLinux(port)
 	}
 	out, _ := runQuiet(10*time.Second, "netsh", "advfirewall", "firewall", "show", "rule", "name=TokenSaver Link")
 	if strings.Contains(out, "Profiles:") && (strings.Contains(out, "Domain,Private,Public") || strings.Contains(out, "Profiles:                             Any") || regexp.MustCompile(`Profiles:\s+(Any|Domain,Private,Public)`).MatchString(out)) {

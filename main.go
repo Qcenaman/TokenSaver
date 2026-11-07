@@ -3,9 +3,10 @@ package main
 import (
 	"fmt"
 	"os"
+	"runtime"
 )
 
-const appVersion = "1.26.0"
+const appVersion = "1.27.0"
 
 func main() {
 	initApp()
@@ -45,8 +46,12 @@ func main() {
 		os.Exit(connectorCLI(args[1:]))
 	case "chats":
 		os.Exit(chatsCLI(args[1:]))
+	case "setup":
+		consoleSetup()
+	case "refresh-helper":
+		refreshHelper()
 	case "version":
-		fmt.Println("tokensaver", appVersion)
+		fmt.Println("tokensaver", appVersion, "("+runtime.GOOS+")")
 	case "restart-claude":
 		os.Exit(restartClaudeNow())
 	case "terminal":

@@ -113,11 +113,16 @@ func removeSaved(name string) error {
 
 func jobsFolder() string { return filepath.Join(appRoot(), "Saved Jobs") }
 
-func shortcutPath(name string) string { return filepath.Join(jobsFolder(), name+".cmd") }
+func shortcutPath(name string) string {
+	if !isWin {
+		return filepath.Join(jobsFolder(), name+".sh")
+	}
+	return filepath.Join(jobsFolder(), name+".cmd")
+}
 
 func writeShortcut(name string) (string, error) {
 	if !isWin {
-		return "", nil
+		return writeLinuxShortcut(name)
 	}
 	exe := installPath()
 	if !exists(exe) {

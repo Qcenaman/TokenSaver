@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"os/exec"
 	"strconv"
 	"strings"
 	"sync"
@@ -293,7 +292,7 @@ func termMacro(rest string) {
 			say("%v", err)
 			return
 		}
-		if err := exec.Command("notepad.exe", macroPath(m.Name)).Start(); err != nil {
+		if err := openInEditor(macroPath(m.Name)); err != nil {
 			say("Open %s in any text editor.", macroPath(m.Name))
 		}
 	case "remove", "delete":
@@ -312,7 +311,7 @@ func termMacro(rest string) {
 			say("%v", err)
 			return
 		}
-		say("Moved %q to the Recycle Bin.", m.Name)
+		say("Moved %q to the %s.", m.Name, binName())
 	default:
 		say("macro record|new|play|list|show|edit|remove NAME")
 	}

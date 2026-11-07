@@ -29,7 +29,7 @@ type runArgs struct {
 func outputPath(id string) string { return filepath.Join(jobsDir(), id, "output.log") }
 
 // userSessionRe matches a command whose program is git or gh (at the start or
-// after a shell separator) â€” tools that need the signed-in user's credential store.
+// after a shell separator) — tools that need the signed-in user's credential store.
 var userSessionRe = regexp.MustCompile(`(?i)(^|[&|;(]\s*)(git|gh)(\.exe)?(\s|$)`)
 
 func needsUserSession(command string) bool { return userSessionRe.MatchString(command) }

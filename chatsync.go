@@ -523,6 +523,11 @@ func chatsShortcut() (string, error) {
 	if !exists(exe) {
 		exe, _ = os.Executable()
 	}
+	if !isWin {
+		p := filepath.Join(appRoot(), "Sync Claude chats.sh")
+		body := "#!/bin/sh\n" + shQuote(exe) + " chats sync\nprintf 'Press Enter to close.'; read _\n"
+		return p, os.WriteFile(p, []byte(body), 0o755)
+	}
 	p := filepath.Join(appRoot(), "Sync Claude chats.cmd")
 	body := "@echo off\r\n\"" + exe + "\" chats sync\r\npause\r\n"
 	return p, os.WriteFile(p, []byte(body), 0o644)

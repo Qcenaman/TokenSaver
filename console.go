@@ -44,22 +44,30 @@ func waitEnter(msg string, timeout time.Duration) {
 }
 
 func installPath() string {
+	if !isWin {
+		return filepath.Join(appRoot(), "app", "tokensaver")
+	}
 	return filepath.Join(appRoot(), "app", "tokensaver.exe")
 }
 
 func consoleMenu() {
-	if !isWin {
-		fmt.Println("usage: tokensaver mcp | run <saved job> | version")
-		return
-	}
 	exe, _ := os.Executable()
 	if !samePath(exe, installPath()) {
 		fmt.Printf("TokenSaver %s\n\n", appVersion)
-		fmt.Println("This installs TokenSaver for your Windows account and connects it to the")
-		fmt.Println("Claude desktop app, so Claude can hand it file jobs instead of doing every step itself.")
+		if isWin {
+			fmt.Println("This installs TokenSaver for your Windows account and connects it to the")
+			fmt.Println("Claude desktop app, so Claude can hand it file jobs instead of doing every step itself.")
+		} else {
+			fmt.Println("This installs TokenSaver for your Linux account and connects it to Claude")
+			fmt.Println("(Claude Code and the Claude desktop app), so Claude can hand it file jobs.")
+		}
 		fmt.Println()
 		if askYes("Install now? [Y/n] ", true) {
-			consoleInstall()
+			if isWin {
+				consoleInstall()
+			} else {
+				consoleSetup()
+			}
 		}
 		waitEnter("\nPress Enter to close.", 0)
 		return
@@ -135,6 +143,9 @@ func runConsoleJob(spec JobSpec) *JobState {
 }
 
 func claudeConfigPaths() []string {
+	if !isWin {
+		return linuxClaudeConfigPaths()
+	}
 	appdata := os.Getenv("APPDATA")
 	std := filepath.Join(appdata, "Claude", "claude_desktop_config.json")
 	var out []string
@@ -192,7 +203,7 @@ func consoleInstall() {
 			if exists(old) {
 				keep := filepath.Join(appRoot(), "old", "TokenSaver program")
 				os.MkdirAll(keep, 0o755)
-				os.Rename(old, filepath.Join(keep, "tokensaver.exe.old."+time.Now().Format("20060102150405")))
+				os.Rename(old, filepath.Join(keep, filepath.Base(target)+".old."+time.Now().Format("20060102150405")))
 			}
 			if err := os.Rename(target, old); err != nil {
 				fmt.Println("Couldn't replace the installed copy (is it in use?):", err)
@@ -203,6 +214,7 @@ func consoleInstall() {
 			fmt.Println("Couldn't copy the app:", err)
 			return
 		}
+		os.Chmod(target, 0o755)
 		fmt.Println("Installed to", target)
 	}
 	os.WriteFile(filepath.Join(filepath.Dir(target), "version.txt"), []byte(appVersion+"\n"), 0o644)
@@ -219,7 +231,11 @@ func consoleInstall() {
 	if len(todo) > 0 && claudeRunning() {
 		fmt.Println("\nClaude is open. It rewrites its settings when it closes, which would undo this.")
 		for claudeRunning() {
-			a := prompt("Quit Claude completely (right-click its icon near the clock → Quit), then press Enter. Type s to skip: ")
+			q := "Quit Claude completely (right-click its icon near the clock → Quit), then press Enter. Type s to skip: "
+			if !isWin {
+				q = "Quit Claude completely (tray icon → Quit, or File → Quit), then press Enter. Type s to skip: "
+			}
+			a := prompt(q)
 			if strings.EqualFold(a, "s") {
 				todo = nil
 				break
@@ -237,13 +253,19 @@ func consoleInstall() {
 		fmt.Println("Connected to Claude in", p)
 		connected++
 	}
+	if !isWin {
+		connected += linuxConnectClaudeCode(target)
+		linuxInstallExtras(target)
+	}
 	if connected == 0 {
 		fmt.Printf("\nAdd this to the \"mcpServers\" section of Claude's claude_desktop_config.json by hand:\n  \"tokensaver\": {\"command\": %q, \"args\": [\"mcp\"]}\n", target)
 	}
 	refreshHelper()
 	migrateOldInstall()
 	os.MkdirAll(jobsFolder(), 0o755)
-	os.WriteFile(filepath.Join(jobsFolder(), "Open TokenSaver.cmd"), []byte("@\""+target+"\"\r\n"), 0o644)
+	if isWin {
+		os.WriteFile(filepath.Join(jobsFolder(), "Open TokenSaver.cmd"), []byte("@\""+target+"\"\r\n"), 0o644)
+	}
 	fmt.Println("\nAll set. Open Claude (if it's open, quit it from the tray icon and reopen it) so it loads this version.")
 	fmt.Println("Everything TokenSaver keeps is in", appRoot())
 }
@@ -258,6 +280,9 @@ func consoleUninstall() {
 			continue
 		}
 		fmt.Println("Disconnected from Claude in", p)
+	}
+	if !isWin {
+		linuxDisconnectClaudeCode()
 	}
 	fmt.Println("Restart Claude to finish. Your saved jobs and logs are kept in", appHome)
 }

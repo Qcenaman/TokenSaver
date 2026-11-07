@@ -186,6 +186,14 @@ func adbExe() string {
 	if p, err := lookPath("adb"); err == nil {
 		return p
 	}
+	// Started from systemd or a desktop launcher, PATH may miss the Android SDK.
+	if h, err := os.UserHomeDir(); err == nil {
+		for _, p := range []string{"/usr/bin/adb", filepath.Join(h, "Android", "Sdk", "platform-tools", "adb"), filepath.Join(h, "platform-tools", "adb")} {
+			if exists(p) {
+				return p
+			}
+		}
+	}
 	// Claude desktop and sign-in tasks can start without the user's latest PATH (winget puts adb there).
 	if la := os.Getenv("LOCALAPPDATA"); la != "" {
 		cands := []string{filepath.Join(la, "Microsoft", "WinGet", "Links", "adb.exe"), filepath.Join(la, "Android", "Sdk", "platform-tools", "adb.exe")}

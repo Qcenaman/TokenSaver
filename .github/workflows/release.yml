@@ -1,0 +1,44 @@
+name: release
+# Builds every platform from this one repo and attaches the files to the release
+# for main.go's appVersion: creates tag + release when they don't exist yet
+# (notes = the version commit's message body), otherwise adds the files to it.
+on:
+  push:
+    branches: [main]
+  release:
+    types: [published]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: v
+        run: echo "version=$(grep -oP 'appVersion = "\K[^"]+' main.go)" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: sudo apt-get update -q && sudo apt-get install -y -q tesseract-ocr poppler-utils imagemagick
+      - run: go vet ./... && go test ./...
+      - name: build
+        run: |
+          mkdir dist
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -o dist/tokensaver.exe .
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o dist/tokensaver-linux-amd64 .
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -o dist/tokensaver-linux-arm64 .
+          (cd dist && sha256sum * > SHA256SUMS.txt)
+      - name: publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          v=v${{ steps.v.outputs.version }}
+          if gh release view "$v" >/dev/null 2>&1; then
+            gh release upload "$v" dist/* --clobber
+          else
+            git log -1 --format=%b | grep -vE '^(Co-Authored-By|Claude-Session):' > notes.md
+            gh release create "$v" --target "$(git rev-parse HEAD)" --title "$v" --notes-file notes.md dist/*
+          fi

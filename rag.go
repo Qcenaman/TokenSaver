@@ -524,11 +524,18 @@ func llamaDir() string {
 	if cfg.AIScript != "" {
 		return filepath.Dir(cfg.AIScript)
 	}
+	if v := os.Getenv("TOKENSAVER_LLAMA_DIR"); v != "" {
+		return v
+	}
+	if !isWin {
+		h, _ := os.UserHomeDir()
+		return filepath.Join(h, "llama.cpp")
+	}
 	return `D:\llama.cpp`
 }
 
 func (s *embedServer) startLocked(ctx context.Context, cpu, big bool, status func(string)) error {
-	exe := filepath.Join(llamaDir(), "llama-server.exe")
+	exe := filepath.Join(llamaDir(), llamaServerName())
 	if !isWin {
 		exe = filepath.Join(llamaDir(), "llama-server")
 	}
@@ -540,7 +547,7 @@ func (s *embedServer) startLocked(ctx context.Context, cpu, big bool, status fun
 			s.adopted = true
 			return nil
 		}
-		killProcs(nil, "llama-server.exe", "--port "+strconv.Itoa(ragPort))
+		killProcs(nil, llamaServerName(), "--port "+strconv.Itoa(ragPort))
 		time.Sleep(2 * time.Second)
 	}
 	model := loadRagConfig().Model
@@ -628,7 +635,7 @@ func (s *embedServer) shutdown() {
 
 func (s *embedServer) stopLocked() {
 	if s.adopted && s.proc == nil {
-		killProcs(nil, "llama-server.exe", "--port "+strconv.Itoa(ragPort))
+		killProcs(nil, llamaServerName(), "--port "+strconv.Itoa(ragPort))
 	}
 	s.adopted = false
 	if s.proc != nil && s.proc.Process != nil {
@@ -1655,4 +1662,11 @@ func ragStatus() string {
 	}
 	fmt.Fprintf(&b, "Notes: %d", len(loadNotes()))
 	return b.String()
+}
+
+func llamaServerName() string {
+	if isWin {
+		return "llama-server.exe"
+	}
+	return "llama-server"
 }

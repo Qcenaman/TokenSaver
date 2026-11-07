@@ -57,6 +57,12 @@ var destructiveRe = func() *regexp.Regexp {
 		`Uninstall-Package`, `Remove-AppxPackage`, `Set-MpPreference`, `Add-MpPreference`, `Remove-MpPreference`,
 		`Disable-WindowsOptionalFeature`, `Set-ExecutionPolicy`, `Remove-LocalUser`, `Set-LocalUser`,
 		`Remove-LocalGroupMember`, `Add-LocalGroupMember`, `Set-NetFirewallProfile`, `Remove-NetFirewallRule`,
+		// Linux
+		`unlink`, `shred`, `wipefs`, `dd`, `mkfs`, `mkswap`, `sgdisk`,
+		`partprobe`, `resize2fs`, `ntfsresize`, `e2fsck`, `fsck`, `cryptsetup`, `lvremove`, `vgremove`, `pvremove`,
+		`lvreduce`, `zpool`, `reboot`, `poweroff`, `halt`, `kexec`, `userdel`, `deluser`, `groupdel`, `delgroup`,
+		`passwd`, `chpasswd`, `usermod`, `visudo`, `grub-install`, `update-grub`, `grub-mkconfig`, `efibootmgr`,
+		`chattr`, `setfacl`, `truncate`, `blkdiscard`, `swapoff`,
 	}
 	phrases := []string{
 		`reg(?:\.exe)?\s+(?:delete|add|import|restore|load|unload|copy)`,
@@ -72,6 +78,26 @@ var destructiveRe = func() *regexp.Regexp {
 		`netsh(?:\.exe)?\s+(?:advfirewall|firewall)\s+.*\b(?:set|delete|reset)`,
 		`dism(?:\.exe)?\s+.*/(?:remove|disable)`,
 		`move(?:\.exe)?\s+.*(?:\\windows\\|\\program files)`,
+		// Linux
+		`mkfs\.\w+`, `fsck\.\w+`,
+		`systemctl\s+(?:--\S+\s+)*(?:stop|disable|mask|kill|reboot|poweroff|halt|isolate|rescue|emergency|kexec|set-default)`,
+		`service\s+\S+\s+stop`,
+		`(?:apt|apt-get|aptitude)\s+(?:-\S+\s+)*(?:remove|purge|autoremove|full-upgrade|dist-upgrade)`,
+		`dpkg\s+.*(?:-r|-P|--remove|--purge)`,
+		`(?:snap|flatpak)\s+(?:remove|uninstall)`,
+		`ufw\s+(?:disable|delete|reset|deny|reject)`,
+		`(?:iptables|ip6tables)\s+.*(?:-F|-X|-D|--flush|--delete|-P\s+\S+\s+DROP)`,
+		`nft\s+(?:flush|delete)`,
+		`init\s+[06]`, `telinit\s+[06]`,
+		`chmod\s+(?:-\S+\s+)*-R`, `chown\s+(?:-\S+\s+)*-R`, `chmod\s+-\S*R`, `chown\s+-\S*R`,
+		`mv\s+.*\s/(?:etc|usr|boot|bin|sbin|lib|lib64|var)(?:/\S*)?`,
+		`(?:fdisk|gdisk|cfdisk|sfdisk)\s+(?:-[^l\s]\S*\s+)*/dev/\S+`, `sfdisk\s+--(?:delete|part-type|relocate)`,
+		`parted\s+.*\b(?:mklabel|mktable|mkpart|rm|resizepart|resize|set|toggle|name|rescue)`,
+		`find\s+.*-delete`, `find\s+.*-exec\s+rm`,
+		`(?:>|tee)\s*/dev/(?:sd|nvme|mmcblk|vd|hd)\w*`,
+		`(?:>|tee)\s*/etc/(?:fstab|passwd|shadow|sudoers|group|crypttab)`,
+		`sed\s+(?:-\S+\s+)*-i\S*\s+.*\s/(?:etc|boot)/\S*`,
+		`(?:git)\s+(?:clean\s+-\S*f|reset\s+--hard)`,
 	}
 	for i, w := range words {
 		words[i] = regexp.QuoteMeta(w)

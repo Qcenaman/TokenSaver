@@ -78,28 +78,39 @@ type uiaItem struct {
 
 // uiaText reads a window's accessibility tree and lays it out in rows, top to bottom.
 func uiaText(w winInfo) (string, error) {
-	script := filepath.Join(appHome, "scripts", "uiatext.ps1")
-	if b, err := os.ReadFile(script); err != nil || string(b) != uiaScript {
-		os.MkdirAll(filepath.Dir(script), 0o755)
-		if err := os.WriteFile(script, []byte(uiaScript), 0o644); err != nil {
-			return "", err
+	var out []byte
+	var err error
+	ctx, cancel := context.Background(), func() {}
+	if !isWin {
+		lines, aerr := atspiTextLines(w)
+		if aerr != nil {
+			return "", aerr
 		}
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
-	defer cancel()
-	cmd := quietCmd(psExe(), "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", script, "-Hwnd", strconv.FormatInt(int64(w.hwnd), 10))
-	done := make(chan struct{})
-	go func() {
-		select {
-		case <-ctx.Done():
-			if cmd.Process != nil {
-				cmd.Process.Kill()
+		out = []byte(strings.Join(lines, "\n"))
+	} else {
+		script := filepath.Join(appHome, "scripts", "uiatext.ps1")
+		if b, err := os.ReadFile(script); err != nil || string(b) != uiaScript {
+			os.MkdirAll(filepath.Dir(script), 0o755)
+			if err := os.WriteFile(script, []byte(uiaScript), 0o644); err != nil {
+				return "", err
 			}
-		case <-done:
 		}
-	}()
-	out, err := cmd.Output()
-	close(done)
+		ctx, cancel = context.WithTimeout(context.Background(), 40*time.Second)
+		defer cancel()
+		cmd := quietCmd(psExe(), "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", script, "-Hwnd", strconv.FormatInt(int64(w.hwnd), 10))
+		done := make(chan struct{})
+		go func() {
+			select {
+			case <-ctx.Done():
+				if cmd.Process != nil {
+					cmd.Process.Kill()
+				}
+			case <-done:
+			}
+		}()
+		out, err = cmd.Output()
+		close(done)
+	}
 	var items []uiaItem
 	seen := map[string]bool{}
 	for _, l := range strings.Split(string(out), "\n") {

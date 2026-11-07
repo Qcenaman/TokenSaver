@@ -75,12 +75,12 @@ func handleRPC(req rpcReq) map[string]any {
 			"protocolVersion": v,
 			"capabilities":    map[string]any{"tools": map[string]any{"listChanged": false}},
 			"serverInfo":      map[string]any{"name": "tokensaver", "version": appVersion},
-			"instructions":    serverInstructions,
+			"instructions":    platformText(serverInstructions),
 		}
 	case "ping":
 		resp["result"] = map[string]any{}
 	case "tools/list":
-		resp["result"] = map[string]any{"tools": toolDefs}
+		resp["result"] = map[string]any{"tools": platformToolDefs()}
 	case "tools/call":
 		var p struct {
 			Name      string          `json:"name"`
