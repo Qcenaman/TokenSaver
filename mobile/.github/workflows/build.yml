@@ -1,0 +1,67 @@
+name: build
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: tunnel/go.mod
+          cache-dependency-path: tunnel/go.mod
+
+      - name: Go tests (tunnel)
+        working-directory: tunnel
+        run: |
+          go mod tidy
+          go vet ./...
+          go test ./...
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: go-sum
+          path: tunnel/go.sum
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Unit tests and APK
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon testDebugUnitTest assembleRelease
+
+      - name: Name the APK
+        run: |
+          v=$(grep -m1 'val appVersionName' app/build.gradle.kts | cut -d'"' -f2)
+          cp app/build/outputs/apk/release/app-release.apk "MobileTokenSaver-$v.apk"
+          ls -l MobileTokenSaver-*.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: apk
+          path: MobileTokenSaver-*.apk
+
+      - name: Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          git fetch --force origin "refs/tags/$tag:refs/tags/$tag"
+          notes=$(git tag -l --format='%(contents)' "$tag")
+          gh release view "$tag" >/dev/null 2>&1 || gh release create "$tag" --title "MobileTokenSaver $tag" --notes "$notes"
+          gh release upload "$tag" MobileTokenSaver-*.apk --clobber
