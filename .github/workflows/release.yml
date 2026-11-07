@@ -5,6 +5,7 @@ name: release
 on:
   push:
     branches: [main]
+    paths-ignore: ['contextsaver/**', 'mobile/**', '.github/workflows/contextsaver-*.yml', '.github/workflows/mobile.yml']
   release:
     types: [published]
   workflow_dispatch:

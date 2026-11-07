@@ -1,0 +1,52 @@
+name: contextsaver-linux
+# ContextSaver for Linux (contextsaver/linux): test on every push; on main, when its
+# appVersion has no contextsaver-linux-vX.Y.Z tag yet, build and publish that release.
+on:
+  push:
+    paths: ['contextsaver/linux/**', '.github/workflows/contextsaver-linux.yml']
+  pull_request:
+    paths: ['contextsaver/linux/**']
+  workflow_dispatch:
+permissions:
+  contents: write
+defaults:
+  run:
+    working-directory: contextsaver/linux
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: contextsaver/linux/go.mod
+          cache-dependency-path: contextsaver/linux/go.sum
+      - run: sudo apt-get update -q && sudo apt-get install -y -q universal-ctags tesseract-ocr poppler-utils imagemagick
+      - run: go vet ./... && go test ./...
+  release:
+    needs: test
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: v
+        run: |
+          v=$(grep -oP 'appVersion = "\K[^"]+' main.go)
+          echo "tag=contextsaver-linux-v$v" >> "$GITHUB_OUTPUT"
+          if git rev-parse -q --verify "refs/tags/contextsaver-linux-v$v" >/dev/null; then echo "skip=1" >> "$GITHUB_OUTPUT"; fi
+      - if: steps.v.outputs.skip != '1'
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: contextsaver/linux/go.mod
+          cache-dependency-path: contextsaver/linux/go.sum
+      - if: steps.v.outputs.skip != '1'
+        run: CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o contextsaver-linux-amd64 .
+      - if: steps.v.outputs.skip != '1'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git log -1 --format=%b -- . | grep -vE '^(Co-Authored-By|Claude-Session):' > notes.md || true
+          [ -s notes.md ] || echo "ContextSaver for Linux ${{ steps.v.outputs.tag }}" > notes.md
+          gh release create "${{ steps.v.outputs.tag }}" --target "$(git rev-parse HEAD)" --title "ContextSaver for Linux ${{ steps.v.outputs.tag }}" --notes-file notes.md contextsaver-linux-amd64

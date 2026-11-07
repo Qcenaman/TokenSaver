@@ -1,0 +1,52 @@
+name: contextsaver-windows
+# ContextSaver for Windows (contextsaver/windows): test on every push; on main, when
+# its appVersion has no contextsaver-windows-vX.Y.Z tag yet, build and publish that release.
+on:
+  push:
+    paths: ['contextsaver/windows/**', '.github/workflows/contextsaver-windows.yml']
+  pull_request:
+    paths: ['contextsaver/windows/**']
+  workflow_dispatch:
+permissions:
+  contents: write
+defaults:
+  run:
+    working-directory: contextsaver/windows
+    shell: bash
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: contextsaver/windows/go.mod
+          cache-dependency-path: contextsaver/windows/go.sum
+      - run: go vet ./... && go test ./...
+  release:
+    needs: test
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: v
+        run: |
+          v=$(grep -oP 'appVersion = "\K[^"]+' main.go)
+          echo "tag=contextsaver-windows-v$v" >> "$GITHUB_OUTPUT"
+          if git rev-parse -q --verify "refs/tags/contextsaver-windows-v$v" >/dev/null; then echo "skip=1" >> "$GITHUB_OUTPUT"; fi
+      - if: steps.v.outputs.skip != '1'
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: contextsaver/windows/go.mod
+          cache-dependency-path: contextsaver/windows/go.sum
+      - if: steps.v.outputs.skip != '1'
+        run: CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o contextsaver.exe .
+      - if: steps.v.outputs.skip != '1'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git log -1 --format=%b -- . | grep -vE '^(Co-Authored-By|Claude-Session):' > notes.md || true
+          [ -s notes.md ] || echo "ContextSaver for Windows ${{ steps.v.outputs.tag }}" > notes.md
+          gh release create "${{ steps.v.outputs.tag }}" --target "$(git rev-parse HEAD)" --title "ContextSaver for Windows ${{ steps.v.outputs.tag }}" --notes-file notes.md contextsaver.exe
