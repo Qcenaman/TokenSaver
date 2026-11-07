@@ -5,7 +5,7 @@ import (
 	"os"
 )
 
-const appVersion = "1.25.1"
+const appVersion = "1.26.0"
 
 func main() {
 	initApp()
@@ -41,6 +41,8 @@ func main() {
 		consoleInstallLink()
 	case "phone":
 		os.Exit(phoneCLI(args[1:]))
+	case "connector":
+		os.Exit(connectorCLI(args[1:]))
 	case "chats":
 		os.Exit(chatsCLI(args[1:]))
 	case "version":

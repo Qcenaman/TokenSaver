@@ -23,6 +23,7 @@ import (
 
 type linkConfig struct {
 	Token          string `json:"token"`
+	ConnectorToken string `json:"connector_token,omitempty"` // claude.ai custom connector: the secret path /c/<token>/mcp
 	Port           int    `json:"port,omitempty"`
 	Tunnel         string `json:"tunnel,omitempty"`          // cloudflared | off; empty = on when cloudflared is installed
 	TunnelHostname string `json:"tunnel_hostname,omitempty"` // named tunnel: stable hostname
@@ -83,38 +84,100 @@ func bearer(r *http.Request) string {
 	return r.Header.Get("X-TokenSaver-Token")
 }
 
+// ensureConnectorToken returns the connector token, generating and saving one the first time
+// it is needed. It is separate from the phone token so either can be rotated on its own.
+func ensureConnectorToken() string {
+	c := loadLinkCfg()
+	if c.ConnectorToken == "" {
+		c.ConnectorToken = newConnectorToken()
+		writeJSONAtomic(linkCfgPath(), c)
+	}
+	return c.ConnectorToken
+}
+
+func newConnectorToken() string {
+	b := make([]byte, 24)
+	rand.Read(b)
+	return hex.EncodeToString(b)
+}
+
+// rotateConnectorToken replaces the connector token (the old connector URL stops working at once).
+func rotateConnectorToken() string {
+	c := loadLinkCfg()
+	c.ConnectorToken = newConnectorToken()
+	writeJSONAtomic(linkCfgPath(), c)
+	return c.ConnectorToken
+}
+
+// connectorPath is the path part of the connector URL for a token.
+func connectorPath(tok string) string { return "/c/" + tok + "/mcp" }
+
+// connectorURL is the full URL to paste into claude.ai (Settings > Connectors > Add custom
+// connector), or "" when no tunnel is up. Never written to the serve log.
+func connectorURL() string {
+	base := currentTunnelURL()
+	if base == "" {
+		return ""
+	}
+	return strings.TrimRight(base, "/") + connectorPath(ensureConnectorToken())
+}
+
+// serveMCPHTTP is the one MCP-over-HTTP handler behind both routes: /mcp (bearer token, the
+// phone / AdbSaver / RemoteAI) and /c/<connector_token>/mcp (claude.ai custom connector, where the
+// path is the auth because claude.ai cannot send custom headers). authorized decides the auth;
+// everything else is identical: plain JSON replies, 202 for notifications, 405 for non-POST.
+func serveMCPHTTP(w http.ResponseWriter, r *http.Request, authorized func(*http.Request) bool, via string) {
+	if r.Method != "POST" {
+		w.Header().Set("Allow", "POST")
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	ip := clientIP(r)
+	if mcpFails.blocked(ip) {
+		http.Error(w, "too many failures", http.StatusTooManyRequests)
+		return
+	}
+	if !authorized(r) {
+		mcpFails.fail(ip)
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	body, _ := io.ReadAll(io.LimitReader(r.Body, 64<<20))
+	var req rpcReq
+	if err := json.Unmarshal(body, &req); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{"jsonrpc":"2.0","id":null,"error":{"code":-32700,"message":"parse error"}}`)
+		return
+	}
+	if len(req.ID) == 0 || string(req.ID) == "null" {
+		w.WriteHeader(http.StatusAccepted) // notification: no reply (streamable HTTP wants 202)
+		return
+	}
+	if req.Method == "tools/call" {
+		var p struct {
+			Name string `json:"name"`
+		}
+		json.Unmarshal(req.Params, &p)
+		serveLog("%s: tool %s", via, p.Name) // tool name only: never arguments, tokens or URLs
+	}
+	out, _ := json.Marshal(handleRPC(req))
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(out)
+}
+
 func linkHandler(c linkConfig) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, "ok") })
 	mux.HandleFunc("/mcp", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != "POST" {
-			http.Error(w, "POST only", http.StatusMethodNotAllowed)
-			return
-		}
-		ip := clientIP(r)
-		if mcpFails.blocked(ip) {
-			http.Error(w, "too many failures", http.StatusTooManyRequests)
-			return
-		}
-		if bearer(r) != c.Token {
-			mcpFails.fail(ip)
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-		body, _ := io.ReadAll(io.LimitReader(r.Body, 64<<20))
-		var req rpcReq
-		if err := json.Unmarshal(body, &req); err != nil {
-			w.Header().Set("Content-Type", "application/json")
-			io.WriteString(w, `{"jsonrpc":"2.0","id":null,"error":{"code":-32700,"message":"parse error"}}`)
-			return
-		}
-		if len(req.ID) == 0 || string(req.ID) == "null" {
-			w.WriteHeader(204)
-			return
-		}
-		out, _ := json.Marshal(handleRPC(req))
-		w.Header().Set("Content-Type", "application/json")
-		w.Write(out)
+		serveMCPHTTP(w, r, func(r *http.Request) bool { return bearer(r) == c.Token }, "mcp")
+	})
+	// claude.ai custom connector: the token lives in the path and is re-read from link.json on
+	// every call, so "tokensaver connector rotate" takes effect without a restart.
+	mux.HandleFunc("/c/", func(w http.ResponseWriter, r *http.Request) {
+		serveMCPHTTP(w, r, func(r *http.Request) bool {
+			tok := loadLinkCfg().ConnectorToken
+			return tok != "" && r.URL.Path == connectorPath(tok)
+		}, "connector")
 	})
 	// The phone reports its addresses whenever they change (and every ~15 min); the reply always
 	// carries this PC's current routes, which is how the phone learns a new tunnel URL on mobile data.
@@ -419,4 +482,50 @@ func serveLog(format string, a ...any) {
 	if serveEcho {
 		os.Stdout.WriteString(line[20:])
 	}
+}
+
+// --- claude.ai connector ------------------------------------------------------------------------
+
+// connectorCLI is "tokensaver connector [rotate]": prints the URL to add in claude.ai
+// (Settings > Connectors > Add custom connector); rotate first makes a new secret token.
+func connectorCLI(args []string) int {
+	if len(args) > 0 {
+		switch strings.ToLower(args[0]) {
+		case "rotate":
+			rotateConnectorToken()
+			fmt.Println("New connector token made; the old connector URL no longer works. Update it in claude.ai:")
+		default:
+			fmt.Println("usage: tokensaver connector [rotate]")
+			return 2
+		}
+	}
+	fmt.Print(connectorReport())
+	return 0
+}
+
+// connectorReport is the text for the CLI and the console: URL (or how to get one) plus warnings.
+func connectorReport() string {
+	var b strings.Builder
+	lc := loadLinkCfg()
+	u := connectorURL()
+	if u == "" {
+		ensureConnectorToken()
+		b.WriteString("No tunnel is up, so there is no public connector URL yet.\n")
+		if !tunnelWanted(lc) {
+			b.WriteString("Turn the tunnel on (tokensaver phone tunnel start) and make sure 'tokensaver serve' is running.\n")
+		} else {
+			b.WriteString("Make sure 'tokensaver serve' is running (tokensaver phone tunnel status).\n")
+		}
+		b.WriteString("Then run 'tokensaver connector' again.\n")
+		return b.String()
+	}
+	b.WriteString(u + "\n")
+	if strings.Contains(u, ".trycloudflare.com") {
+		b.WriteString("\nWARNING: this is a temporary trycloudflare URL; it changes every time the tunnel restarts,\n")
+		b.WriteString("so the connector in claude.ai would need updating each time. For a permanent connector set up a\n")
+		b.WriteString("named tunnel with a stable hostname (tunnel_hostname + tunnel_credentials in link.json).\n")
+	}
+	b.WriteString("\nKeep this URL secret: whoever has it can use every TokenSaver tool on this PC, including the\n")
+	b.WriteString("admin helper. 'tokensaver connector rotate' makes a new one.\n")
+	return b.String()
 }

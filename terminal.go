@@ -27,6 +27,7 @@ const termHelp = `Commands (Ctrl+Alt+Esc stops a macro and pauses triggers at an
   tool NAME {json}           call a TokenSaver tool, e.g. tool scan {"path":"D:\\Downloads"}
   reconnect | disconnect     connect TokenSaver to Claude desktop, or not
   helper | helper remove     install/restart or remove the admin helper
+  connector [rotate]         the URL for a claude.ai custom connector (rotate = new secret)
   version | help | exit`
 
 var termOut sync.Mutex
@@ -107,6 +108,12 @@ func terminal() {
 			consoleInstall()
 		case "disconnect":
 			consoleUninstall()
+		case "connector":
+			if strings.EqualFold(rest, "rotate") {
+				rotateConnectorToken()
+				say("New connector token made; update the connector in claude.ai.")
+			}
+			say("%s", strings.TrimRight(connectorReport(), "\n"))
 		case "helper":
 			if strings.EqualFold(rest, "remove") {
 				consoleUninstallHelper()

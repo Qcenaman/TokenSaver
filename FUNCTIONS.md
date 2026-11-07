@@ -1,6 +1,6 @@
 # TokenSaver functions
 
-**Version 1.25.1**
+**Version 1.26.0**
 
 Windows PC helper that Claude hands work to, so the steps run on the PC instead of costing tokens in the chat. Runs as an MCP server in Claude desktop. Everything it keeps is in `D:\Claude Apps\TokenSaver`.
 
@@ -31,6 +31,11 @@ Windows PC helper that Claude hands work to, so the steps run on the PC instead 
 Also: GitHub repos as paths (owner/name[@ref][/sub] in find, read, scan, check, outline and git) read from a temporary copy TokenSaver keeps on the PC, updated as needed and removed after a day unused, so Claude never clones repos itself; tells Claude desktop to prefer TokenSaver over its built-in tools, undo for file jobs, job-end signals through GitHub (no polling), protected system folders; the terminal also reconnects Claude desktop and installs or removes the admin helper.
 
 ## What's new
+### 1.26.0
+- claude.ai custom connector: `tokensaver serve` also answers at the secret path /c/<connector_token>/mcp, so chats on the phone (no desktop app link) can use the PC's TokenSaver tools; the path is the login, because claude.ai cannot send headers
+- `tokensaver connector` prints the connector URL (warns when it is a temporary trycloudflare one); `tokensaver connector rotate` makes a new secret; also in the console (connector)
+- connector_token in link.json is separate from the phone token; serve logs only tool names, never the token or URL
+- MCP over HTTP: notifications answer 202, GET answers 405 + Allow: POST; the bearer /mcp route is unchanged
 ### 1.25.1
 - Fix: git clone now recognises a folder that is already that clone even when its path uses Windows short names (like RUNNER~1), instead of saying it is not a clone
 ### 1.25.0
