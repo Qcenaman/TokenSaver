@@ -43,3 +43,5 @@ jobs:
             git log -1 --format=%b | grep -vE '^(Co-Authored-By|Claude-Session):' > notes.md
             gh release create "$v" --target "$(git rev-parse HEAD)" --title "$v" --notes-file notes.md dist/*
           fi
+          # ContextSaver / mobile releases live in this repo too: keep TokenSaver as "latest".
+          gh release edit "$v" --latest

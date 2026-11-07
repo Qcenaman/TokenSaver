@@ -49,4 +49,4 @@ jobs:
         run: |
           git log -1 --format=%b -- . | grep -vE '^(Co-Authored-By|Claude-Session):' > notes.md || true
           [ -s notes.md ] || echo "ContextSaver for Linux ${{ steps.v.outputs.tag }}" > notes.md
-          gh release create "${{ steps.v.outputs.tag }}" --target "$(git rev-parse HEAD)" --title "ContextSaver for Linux ${{ steps.v.outputs.tag }}" --notes-file notes.md contextsaver-linux-amd64
+          gh release create --latest=false "${{ steps.v.outputs.tag }}" --target "$(git rev-parse HEAD)" --title "ContextSaver for Linux ${{ steps.v.outputs.tag }}" --notes-file notes.md contextsaver-linux-amd64
