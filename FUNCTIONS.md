@@ -1,6 +1,6 @@
 # TokenSaver functions
 
-**Version 1.28.0**
+**Version 2.0.0**
 
 Windows PC helper that Claude hands work to, so the steps run on the PC instead of costing tokens in the chat. Runs as an MCP server in Claude desktop. Everything it keeps is in `D:\Claude Apps\TokenSaver`.
 
@@ -33,6 +33,15 @@ Windows PC helper that Claude hands work to, so the steps run on the PC instead 
 Also: GitHub repos as paths (owner/name[@ref][/sub] in find, read, scan, check, outline and git) read from a temporary copy TokenSaver keeps on the PC, updated as needed and removed after a day unused, so Claude never clones repos itself; tells Claude desktop to prefer TokenSaver over its built-in tools, undo for file jobs, job-end signals through GitHub (no polling), protected system folders; the terminal also reconnects Claude desktop and installs or removes the admin helper.
 
 ## What's new
+### 2.0.0
+- One app for Windows and Linux: ContextSaver is now TokenSaver's local mode. Run it as contextsaver (or mcp --local / --for <client>) and local models in AnythingLLM, LM Studio or Cline get one small pc tool with short help, approvals for risky calls, model switching and phone app installs; existing ContextSaver setups keep working
+- Both modes share one search index, one set of memory notes and one admin helper
+- The code review (check review) is now in one place for Claude and the local AI
+- find: path globs like **/*.ts, skips .gitignored and build-output folders
+- git: login (GitHub sign-in with a one-time code) and ci (GitHub Actions status)
+- build: uses the project's .venv Python and Gradle wrapper, npm on Linux, shows source-position lines
+- Linux: D:\ paths map to the mounted Windows drives
+- Releases also carry contextsaver.exe and contextsaver-linux-* (the same program)
 ### 1.28.0
 - check action review: a deep code review made for code written by AI models (fine for any code). On top of the linters (stricter Ruff rules) it runs golangci-lint (gosec, nilerr, bodyclose, errorlint and more), Opengrep security rules with taint tracking, gitleaks for secrets, OSV-Scanner for vulnerable dependencies, a made-up / brand-new package-name check (slopsquatting), actionlint + zizmor for GitHub workflows, ShellCheck, PSScriptAnalyzer, detekt for Kotlin, lizard for complexity, and the project's own build + tests
 - Checks of its own for unfinished or fake work: "rest of the code" elisions, stubs that panic or throw "not implemented", placeholder values, hollow tests (no assertion), assertions that can't fail, skipped or .only tests, removed tests and assertions, deleted test files, new lint suppressions, copied blocks, chat text pasted into code, conflict markers, secret files, build output and big files added to git
