@@ -117,6 +117,9 @@ func savedDir() string { return filepath.Join(appHome, "saved") }
 
 var envRe = regexp.MustCompile(`%([A-Za-z0-9_()]+)%`)
 
+// mapWinPath turns a Windows path into its Linux mount (set on Linux).
+var mapWinPath func(string) (string, error)
+
 func expandPath(p string) (string, error) {
 	p = strings.TrimSpace(strings.Trim(strings.TrimSpace(p), `"`))
 	if p == "" {
@@ -134,6 +137,13 @@ func expandPath(p string) (string, error) {
 	}
 	if isWin {
 		p = strings.ReplaceAll(p, "/", `\`)
+	} else if mapWinPath != nil {
+		// Linux: D:\x paths (local models and Windows habits) map to the mounted drive
+		q, err := mapWinPath(p)
+		if err != nil {
+			return "", err
+		}
+		p = q
 	}
 	if !filepath.IsAbs(p) {
 		return "", fmt.Errorf("path must be absolute (like D:\\Photos): %s", p)

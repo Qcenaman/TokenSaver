@@ -22,7 +22,7 @@ func detectLocalMode(args []string) bool {
 	if strings.EqualFold(os.Getenv("TOKENSAVER_MODE"), "local") {
 		return true
 	}
-	if len(args) > 0 && strings.HasPrefix(strings.ToLower(filepath.Base(args[0])), "contextsaver") {
+	if len(args) > 0 && strings.HasPrefix(strings.ToLower(args[0][strings.LastIndexAny(args[0], `/\`)+1:]), "contextsaver") {
 		return true
 	}
 	for i, a := range args {

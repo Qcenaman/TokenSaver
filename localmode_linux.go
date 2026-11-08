@@ -20,6 +20,15 @@ var _ = filepath.Join
 var _ = bufio.NewScanner
 var _ = strconv.Itoa
 
+func init() {
+	mapWinPath = func(p string) (string, error) {
+		if !isWinPath(p) {
+			return p, nil
+		}
+		return winToLinux(p)
+	}
+}
+
 // TokenSaver keeps repo copies current by itself (repos.go), so local mode has no
 // update questions or notes to add.
 func repoUpdateNotes(c string, a map[string]any) string { return "" }

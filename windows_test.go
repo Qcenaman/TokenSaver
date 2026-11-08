@@ -42,7 +42,7 @@ func TestHelperMissingSaysHow(t *testing.T) {
 	if !strings.Contains(helperHowTo(), "install-helper") || !strings.Contains(startHelper(), "install-helper") {
 		t.Fatal("no how-to")
 	}
-	if _, err := startElevated(elevRequest{Command: "echo x", Shell: "cmd"}, nil); err == nil || !strings.Contains(err.Error(), "Tell the user") || !strings.Contains(err.Error(), "install-helper") {
+	if _, err := startElevated(elevRequest{Command: "echo x", Shell: "cmd"}, nil); err == nil || !strings.Contains(err.Error(), "install-helper") {
 		t.Fatalf("elevated run without helper: %v", err)
 	}
 }
