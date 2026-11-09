@@ -29,11 +29,11 @@ func platformText(s string) string {
 
 var platformDefs = sync.OnceValue(func() []json.RawMessage {
 	if isWin {
-		return toolDefs
+		return annotateDefs(toolDefs)
 	}
 	out := make([]json.RawMessage, len(toolDefs))
 	for i, d := range toolDefs {
-		out[i] = json.RawMessage(platformText(string(d)))
+		out[i] = annotateDef(json.RawMessage(platformText(string(d))))
 	}
 	return out
 })

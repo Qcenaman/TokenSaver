@@ -703,7 +703,9 @@ func toolCodeCheck(raw json.RawMessage) (string, error) {
 	doJs := js+ts > 0 && want("js")
 	doGo := gof > 0 && single == "" && ckExists(filepath.Join(root, "go.mod")) && want("go")
 	doAndroid := single == "" && ckIsAndroid(root) && want("android")
-	if !doPy && !doJs && !doGo && !doAndroid {
+	// an Android project that has no Gradle wrapper is still an Android project
+	noWrapper := !doAndroid && single == "" && want("android") && ckAndroidProject(root)
+	if !doPy && !doJs && !doGo && !doAndroid && !noWrapper {
 		return fmt.Sprintf("Checked %s: no Python, JS/TS, Go module or Android project files found.", label), nil
 	}
 	var issues []ckIssue
@@ -739,6 +741,9 @@ func toolCodeCheck(raw json.RawMessage) (string, error) {
 	if doAndroid {
 		add(ckAndroid(root))
 		ran = append(ran, "lint")
+	}
+	if noWrapper {
+		fails = append(fails, "Android project without a Gradle wrapper (gradlew), so Android lint did not run: check action:build adds the wrapper and builds it")
 	}
 	sort.SliceStable(issues, func(i, j int) bool {
 		x, y := issues[i], issues[j]
@@ -879,21 +884,7 @@ func ckGo(root string) ([]ckIssue, string, string) {
 
 // ckIsAndroid: a Gradle wrapper plus the Android Gradle plugin in the root or a module build file.
 func ckIsAndroid(root string) bool {
-	gw := "gradlew"
-	if runtime.GOOS == "windows" {
-		gw = "gradlew.bat"
-	}
-	if !ckExists(filepath.Join(root, gw)) {
-		return false
-	}
-	files, _ := filepath.Glob(filepath.Join(root, "*", "build.gradle*"))
-	files = append(files, filepath.Join(root, "build.gradle"), filepath.Join(root, "build.gradle.kts"), filepath.Join(root, "gradle", "libs.versions.toml"))
-	for _, f := range files {
-		if ckFileHas(f, "com.android") {
-			return true
-		}
-	}
-	return false
+	return hasGradlew(root) && ckAndroidPlugin(root)
 }
 
 type ckLintXML struct {
@@ -929,6 +920,10 @@ func ckJavaEnv() []string {
 				env = append(env, "JAVA_HOME="+home)
 			}
 		}
+	}
+	if h, _ := os.UserHomeDir(); isSystemProfile(h) && os.Getenv("GRADLE_USER_HOME") == "" {
+		// the boot service uses the user's Gradle cache, not a second one in the system profile
+		env = append(env, "GRADLE_USER_HOME="+filepath.Join(userHome(), ".gradle"))
 	}
 	return env
 }

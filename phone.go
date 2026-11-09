@@ -100,20 +100,37 @@ func phoneReach(c phoneConfig, force bool) (string, string) {
 		return b, "cached"
 	}
 	phoneMu.Unlock()
+	// LAN and Tailscale are tried together, so a dead address never holds up one that answers;
+	// LAN wins when both answer. A phone that is waking up can miss the first knock, so when
+	// nothing answers there is one more, slower round.
 	cands := []struct{ ip, via string }{{c.LanIP, "lan"}, {c.TSIP, "tailscale"}}
-	for _, cand := range cands {
-		if cand.ip == "" {
-			continue
+	probe := func(timeout time.Duration) (string, string) {
+		res := make([]chan bool, len(cands))
+		for i, cand := range cands {
+			res[i] = make(chan bool, 1)
+			if cand.ip == "" {
+				res[i] <- false
+				continue
+			}
+			go func(ch chan bool, base string) { ch <- phoneHealth(base, timeout) }(res[i], fmt.Sprintf("http://%s:%d", cand.ip, c.Port))
 		}
-		base := fmt.Sprintf("http://%s:%d", cand.ip, c.Port)
-		if phoneHealth(base, 2500*time.Millisecond) {
-			phoneMu.Lock()
-			phoneBase, phoneBaseAt = base, time.Now()
-			phoneMu.Unlock()
-			return base, cand.via
+		for i, cand := range cands {
+			if <-res[i] {
+				return fmt.Sprintf("http://%s:%d", cand.ip, c.Port), cand.via
+			}
 		}
+		return "", ""
 	}
-	return "", ""
+	base, via := probe(3 * time.Second)
+	if base == "" {
+		base, via = probe(5 * time.Second)
+	}
+	if base != "" {
+		phoneMu.Lock()
+		phoneBase, phoneBaseAt = base, time.Now()
+		phoneMu.Unlock()
+	}
+	return base, via
 }
 
 // phoneCall sends one MCP tools/call to the engine and returns text + images.
@@ -129,7 +146,7 @@ func phoneCall(c phoneConfig, base, tool string, args json.RawMessage) (string, 
 		return "", nil, fmt.Errorf("phone unreachable: %v", err)
 	}
 	if code == 401 {
-		return "", nil, errors.New("phone rejected the token: run phone pair again")
+		return "", nil, errors.New("phone rejected the token: run phone pair again (it reads the app's current token itself)")
 	}
 	if err != nil && text == "" {
 		return "", nil, errors.New("phone: " + err.Error()) // RPC error or unreadable reply
@@ -455,16 +472,7 @@ func phonePair(c phoneConfig) (string, []toolImage, error) {
 	if err != nil {
 		return "", nil, err
 	}
-	tok, err := adbShell(serial, 15*time.Second, "run-as "+c.Package+" cat files/token")
-	tok = strings.TrimSpace(tok)
-	if err != nil || len(tok) < 16 || strings.Contains(tok, " ") {
-		// Release builds of the app can't be read with run-as: use the token the user copied from the app.
-		if len(c.Token) < 16 {
-			return "", nil, fmt.Errorf("could not read the token from the app (%q): open MobileTokenSaver, copy Token (Engine section) and run phone pair again with token set", tok)
-		}
-		tok = c.Token
-	}
-	c.Token = tok
+	given := c.Token // passed with token=..., else the one stored from an earlier pair
 	if strings.HasPrefix(via, "lan") && strings.Contains(serial, ":") {
 		c.AdbSerial = serial
 		c.LanIP = serial[:strings.Index(serial, ":")]
@@ -472,9 +480,40 @@ func phonePair(c phoneConfig) (string, []toolImage, error) {
 	if ip, _ := adbShell(serial, 10*time.Second, "ip -4 addr show wlan0 | grep -o 'inet [0-9.]*' | cut -d' ' -f2"); strings.Count(strings.TrimSpace(ip), ".") == 3 {
 		c.LanIP = strings.TrimSpace(ip)
 	}
-	if ts := tailscaleAndroidIP(); ts != "" {
-		c.TSIP = ts
+	c.TSIP = keepAnsweringIP(c.TSIP, phoneTailscaleIP(serial), func(ip string) bool {
+		return phoneHealth(fmt.Sprintf("http://%s:%d", ip, c.Port), 3*time.Second)
+	})
+	// The token: what the app hands out over adb first, then the given or stored one. Each is
+	// checked against the engine before anything is called paired.
+	var cands []string
+	if t := phoneAppToken(serial, c.Package); t != "" {
+		cands = append(cands, t)
 	}
+	if len(given) >= 16 && (len(cands) == 0 || cands[0] != given) {
+		cands = append(cands, given)
+	}
+	if len(cands) == 0 {
+		return "", nil, errors.New("not paired: could not read the token from the app: " + phoneTokenHelp)
+	}
+	base, _ := phoneReach(c, true)
+	tok, verdict := pickPhoneToken(cands, func(t string) (bool, bool) {
+		if base == "" {
+			return false, false
+		}
+		return phoneTokenCheck(base, t)
+	})
+	switch verdict {
+	case "rejected":
+		savePhoneCfg(c) // the addresses are still right; the token stays as it was
+		return "", nil, errors.New("not paired: the phone rejected the token (401), so it is not the app's current one: " + phoneTokenHelp)
+	case "unchecked":
+		c.Token = tok
+		if err := savePhoneCfg(c); err != nil {
+			return "", nil, err
+		}
+		return "not paired yet: the token is saved but could not be checked, the phone's engine is not answering. Open MobileTokenSaver on the phone and run phone pair again.\n" + phoneStatus(c), nil, nil
+	}
+	c.Token = tok
 	if err := savePhoneCfg(c); err != nil {
 		return "", nil, err
 	}
@@ -553,17 +592,6 @@ func tailscaleExe() string {
 
 var tsLineRe = regexp.MustCompile(`(?m)^(100\.\d+\.\d+\.\d+)\s+\S+\s+\S+\s+android\b`)
 
-func tailscaleAndroidIP() string {
-	exe := tailscaleExe()
-	if exe == "" {
-		return ""
-	}
-	out, _ := runQuiet(8*time.Second, exe, "status")
-	if m := tsLineRe.FindStringSubmatch(out); m != nil {
-		return m[1]
-	}
-	return ""
-}
 
 // phoneAdbFallback covers the basics when the engine is down: run, ui (uiautomator), screen, apps.
 func phoneAdbFallback(c phoneConfig, tool string, raw json.RawMessage) (string, []toolImage, error) {

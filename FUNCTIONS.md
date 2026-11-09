@@ -1,6 +1,6 @@
 # TokenSaver functions
 
-**Version 2.3.0**
+**Version 2.4.0**
 
 Windows PC helper that Claude hands work to, so the steps run on the PC instead of costing tokens in the chat. Runs as an MCP server in Claude desktop. Everything it keeps is in `D:\Claude Apps\TokenSaver`.
 
@@ -34,6 +34,14 @@ Windows PC helper that Claude hands work to, so the steps run on the PC instead 
 Also: GitHub repos as paths (owner/name[@ref][/sub] in find, read, scan, check, outline and git) read from a temporary copy TokenSaver keeps on the PC, updated as needed and removed after a day unused, so Claude never clones repos itself; tells Claude desktop to prefer TokenSaver over its built-in tools, undo for file jobs, job-end signals through GitHub (no polling), protected system folders; the terminal also reconnects Claude desktop and installs or removes the admin helper.
 
 ## What's new
+### 2.4.0
+- Works better with other chat apps (Perplexity and the like): paths and run's cwd accept ~, $HOME, %USERPROFILE% and $env:USERPROFILE (the signed-in user's folder, also when TokenSaver runs as the boot service); a relative path is refused with an example
+- run and the server instructions say it plainly: create or edit files with run_job write/edit steps, one per file, never inside a command
+- scan, find, read, outline and web are labelled read-only (MCP readOnlyHint), so a chat app can tell them from the tools that write
+- check recognises an Android project that has no Gradle wrapper; check action:build adds the wrapper, goes online once when the first build needs downloads, and shows where the APK is
+- check action:new starts a project (android, go, web, python, rust, c), the same starter local mode has; Android comes with the Gradle wrapper
+- phone pair: works with the release app without copying a token (MobileTokenSaver 0.2.1+), picks the right phone when several Android devices are on Tailscale, and no longer says paired when the phone rejects the token
+- phone: LAN and Tailscale are tried together, so a dead address no longer hides one that answers; push_routes reports what the phone answered
 ### 2.3.0
 - Permanent connector address: `tokensaver connector permanent` (or phone tunnel mode funnel) puts serve on Tailscale Funnel at https://<computer>.<tailnet>.ts.net; it never changes, comes back by itself after a restart or reboot, and needs no domain and no cloudflared
 - serve keeps the funnel pointed at the link port and never replaces or removes a funnel that goes somewhere else; phone tunnel mode cloudflared switches back to the temporary tunnel

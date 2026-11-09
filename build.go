@@ -44,7 +44,7 @@ func buildPlan(root, only string, testsToo bool) ([]buildStep, string) {
 		if testsToo {
 			tasks = append(tasks, "testDebugUnitTest")
 		}
-		steps = append(steps, buildStep{"gradle " + strings.Join(tasks, " "), root, ckJavaEnv(), gw, append(tasks, "--console=plain", "-q", "--offline")})
+		steps = append(steps, buildStep{"gradle " + strings.Join(tasks, " "), root, androidEnv(), gw, append(tasks, "--console=plain", "-q", "--offline")})
 	} else if want("go") && has("go.mod") {
 		kinds = append(kinds, "go")
 		// A root with .go files is the program itself; ./... would also sweep
@@ -144,7 +144,10 @@ func toolBuild(raw json.RawMessage) (string, error) {
 	if strings.TrimSpace(a.Path) == "" {
 		return "", errors.New("build needs path (project folder)")
 	}
-	root := filepath.Clean(a.Path)
+	root, err := expandPath(a.Path)
+	if err != nil {
+		return "", err
+	}
 	if st, err := os.Stat(root); err != nil {
 		return "", fmt.Errorf("path not found: %s", root)
 	} else if !st.IsDir() {
@@ -153,7 +156,15 @@ func toolBuild(raw json.RawMessage) (string, error) {
 	if a.Max <= 0 {
 		a.Max = 40
 	}
-	steps, kinds := buildPlan(root, strings.ToLower(a.Only), !a.NoTest)
+	only := strings.ToLower(a.Only)
+	wrapperNote := ""
+	if (only == "" || only == "android") && !hasGradlew(root) && ckAndroidProject(root) {
+		if err := addGradleWrapper(root); err != nil {
+			return "", fmt.Errorf("Android project without a Gradle wrapper, and adding one failed: %v", err)
+		}
+		wrapperNote = "added the Gradle wrapper (Gradle " + gradleVersion + ")\n"
+	}
+	steps, kinds := buildPlan(root, only, !a.NoTest)
 	if len(steps) == 0 {
 		return "", fmt.Errorf("nothing to build in %s (no go.mod, package.json, gradlew, pyproject.toml or tests)", root)
 	}
@@ -162,10 +173,17 @@ func toolBuild(raw json.RawMessage) (string, error) {
 	logPath := filepath.Join(logDir, slug(filepath.Base(root))+".log")
 	var full, b strings.Builder
 	fmt.Fprintf(&b, "%s (%s)\n", root, kinds)
+	b.WriteString(wrapperNote)
 	failed := false
 	for _, s := range steps {
 		start := time.Now()
 		so, se, code, err := ckRunEnv(s.env, s.dir, 20*time.Minute, s.name, s.args...)
+		if err == nil && code != 0 && gradleOfflineMiss(so+se) {
+			// first build: the dependencies aren't downloaded yet, so go online once
+			if online := dropArg(s.args, "--offline"); len(online) < len(s.args) {
+				so, se, code, err = ckRunEnv(s.env, s.dir, 40*time.Minute, s.name, online...)
+			}
+		}
 		out := so + "\n" + se
 		fmt.Fprintf(&full, "==== %s (exit %d, %s)\n%s\n", s.label, code, time.Since(start).Round(time.Second), out)
 		if err != nil {
@@ -204,6 +222,9 @@ func toolBuild(raw json.RawMessage) (string, error) {
 	if failed {
 		fmt.Fprintf(&b, "Full log: %s", logPath)
 	} else {
+		if apks, _ := filepath.Glob(filepath.Join(root, "*", "build", "outputs", "apk", "debug", "*.apk")); len(apks) > 0 {
+			fmt.Fprintf(&b, "APK: %s\n", apks[0])
+		}
 		b.WriteString("all good")
 	}
 	return b.String(), nil

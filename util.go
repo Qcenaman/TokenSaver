@@ -125,16 +125,13 @@ func expandPath(p string) (string, error) {
 	if p == "" {
 		return "", errors.New("empty path")
 	}
+	p = expandHome(p)
 	p = envRe.ReplaceAllStringFunc(p, func(m string) string {
 		if v := os.Getenv(m[1 : len(m)-1]); v != "" {
 			return v
 		}
 		return m
 	})
-	if strings.HasPrefix(p, "~") {
-		h, _ := os.UserHomeDir()
-		p = h + p[1:]
-	}
 	if isWin {
 		p = strings.ReplaceAll(p, "/", `\`)
 	} else if mapWinPath != nil {
@@ -146,7 +143,7 @@ func expandPath(p string) (string, error) {
 		p = q
 	}
 	if !filepath.IsAbs(p) {
-		return "", fmt.Errorf("path must be absolute (like D:\\Photos): %s", p)
+		return "", fmt.Errorf("path must be absolute, e.g. %s (~ and $HOME also work): %s", absExample(), p)
 	}
 	return filepath.Clean(p), nil
 }

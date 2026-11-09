@@ -170,6 +170,7 @@ func pushRoutesToPhone(c phoneConfig, bases []string) error {
 	r := currentRoutes(lc, c.LanIP)
 	body, _ := json.Marshal(map[string]any{"lan_ip": r.LanIP, "tailscale_ip": r.TailscaleIP, "public_host": r.PublicHost, "tunnel_url": r.TunnelURL, "port": lc.Port})
 	var last error = errors.New("phone unreachable on LAN and Tailscale")
+	answered := false // what the phone itself answered outranks a dead address in the report
 	for _, base := range bases {
 		ctx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
 		req, _ := http.NewRequestWithContext(ctx, "POST", base+"/link", bytes.NewReader(body))
@@ -178,7 +179,9 @@ func pushRoutesToPhone(c phoneConfig, bases []string) error {
 		resp, err := phoneHTTP.Do(req)
 		cancel()
 		if err != nil {
-			last = err
+			if !answered {
+				last = err
+			}
 			continue
 		}
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
@@ -207,7 +210,11 @@ func pushRoutesToPhone(c phoneConfig, bases []string) error {
 				resp.StatusCode = resp2.StatusCode
 			}
 		}
+		answered = true
 		last = fmt.Errorf("%s: %d %s", base, resp.StatusCode, strings.TrimSpace(string(b)))
+		if resp.StatusCode == 401 {
+			last = fmt.Errorf("%v: the phone rejected the token, run phone pair again", last)
+		}
 	}
 	return last
 }

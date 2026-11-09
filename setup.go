@@ -257,7 +257,11 @@ func runTo(out io.Writer, dir, name string, args ...string) error {
 // androidSDKHome: where setup puts the Android SDK (Android Studio's place too).
 func androidSDKHome() string {
 	if isWin {
-		return filepath.Join(os.Getenv("LOCALAPPDATA"), "Android", "Sdk")
+		if la := os.Getenv("LOCALAPPDATA"); la != "" && !isSystemProfile(la) {
+			return filepath.Join(la, "Android", "Sdk")
+		}
+		// the boot service: the user's SDK, not the system profile's
+		return filepath.Join(userHome(), "AppData", "Local", "Android", "Sdk")
 	}
 	h, _ := os.UserHomeDir()
 	return filepath.Join(h, "Android", "Sdk")

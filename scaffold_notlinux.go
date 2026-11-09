@@ -29,8 +29,7 @@ func toolNew(a map[string]any) (string, error) {
 	}
 	parent := str(a, "path", "in", "folder")
 	if parent == "" {
-		h, _ := os.UserHomeDir()
-		parent = filepath.Join(h, "Projects")
+		parent = filepath.Join(userHome(), "Projects")
 	}
 	parent, err := expandPath(parent)
 	if err != nil {
@@ -142,8 +141,7 @@ func scaffoldFiles(kind, name, owner string) (map[string]string, error) {
 				"rootProject.name = \"" + name + "\"\ninclude(\":app\")\n",
 			"build.gradle.kts":  "plugins {\n    id(\"com.android.application\") version \"8.7.3\" apply false\n    id(\"org.jetbrains.kotlin.android\") version \"2.0.21\" apply false\n}\n",
 			"gradle.properties": "org.gradle.jvmargs=-Xmx2g\nandroid.useAndroidX=true\nkotlin.code.style=official\n",
-			"gradle/wrapper/gradle-wrapper.properties": "distributionBase=GRADLE_USER_HOME\ndistributionPath=wrapper/dists\n" +
-				"distributionUrl=https\\://services.gradle.org/distributions/gradle-" + gradleVersion + "-bin.zip\nzipStoreBase=GRADLE_USER_HOME\nzipStorePath=wrapper/dists\n",
+			"gradle/wrapper/gradle-wrapper.properties": gradleWrapperProps(),
 			".gitignore": ".gradle/\nbuild/\n/app/build/\nlocal.properties\n/dist/\n.idea/\n*.iml\n",
 			"app/build.gradle.kts": "plugins {\n    id(\"com.android.application\")\n    id(\"org.jetbrains.kotlin.android\")\n}\n\nandroid {\n" +
 				"    namespace = \"" + pkg + "\"\n    compileSdk = 35\n    defaultConfig {\n        applicationId = \"" + pkg + "\"\n" +
