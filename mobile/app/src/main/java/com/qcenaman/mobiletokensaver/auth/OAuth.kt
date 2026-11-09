@@ -11,7 +11,7 @@ import java.util.Base64
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * A tiny OAuth 2.1 authorization server for one client (the user's claude.ai connector):
+ * A tiny OAuth 2.1 authorization server for one client (the user's custom connector in Claude or Perplexity):
  * authorization code + PKCE (S256) + refresh tokens. Every sign-in waits for Approve on the phone.
  * The static access token from the app keeps working as a bearer token too.
  * Tokens are stored only as SHA-256 hashes.
@@ -91,7 +91,7 @@ class OAuth(
 
     /** Polled by the waiting page until the phone answers. */
     fun poll(id: String): Step {
-        val pe = pending[id] ?: return Step.Error("This sign-in request expired. Start the connection again from Claude.")
+        val pe = pending[id] ?: return Step.Error("This sign-in request expired. Start the connection again from Claude or Perplexity.")
         return when (pe.approved) {
             null -> if (now() - pe.at > PENDING_MS) { pending.remove(id); onChange(); Step.Redirect(withQuery(pe.redirectUri, "error" to "access_denied", "error_description" to "not approved in time", "state" to pe.state)) } else Step.Wait(id)
             false -> { pending.remove(id); onChange(); Step.Redirect(withQuery(pe.redirectUri, "error" to "access_denied", "state" to pe.state)) }
@@ -164,7 +164,7 @@ class OAuth(
         return exp >= now()
     }
 
-    /** Sign every Claude session out (they must sign in, and be approved, again). */
+    /** Sign every session out (Claude and Perplexity must sign in, and be approved, again). */
     fun revokeAll() { access.clear(); refresh.clear(); codes.clear(); save() }
 
     fun sessions(): Int { expire(); return refresh.size }
@@ -211,13 +211,22 @@ class OAuth(
 
         fun eq(a: String, b: String) = a.isNotEmpty() && MessageDigest.isEqual(a.toByteArray(), b.toByteArray())
 
-        /** claude.ai / claude.com callbacks over https, or a loopback callback (Claude Code / desktop). */
+        /** Perplexity's custom connectors come back to this one URL: exact host and path, nothing else on perplexity.ai. */
+        private fun perplexityCallback(uri: URI) =
+            uri.host.equals("www.perplexity.ai", true) && uri.rawPath == "/rest/connections/oauth_callback" &&
+                (uri.port == -1 || uri.port == 443) && uri.rawUserInfo == null && uri.rawQuery == null
+
+        /** Who is asking, for the approval prompt: told from where the sign-in goes back to. */
+        fun clientName(redirect: String): String =
+            if (runCatching { URI(redirect).host }.getOrNull().equals("www.perplexity.ai", true)) "Perplexity" else "Claude"
+
+        /** claude.ai / claude.com callbacks over https, Perplexity's one callback URL, or a loopback callback (Claude Code / desktop). */
         fun redirectAllowed(u: String): Boolean {
             val uri = runCatching { URI(u) }.getOrNull() ?: return false
             val host = uri.host?.lowercase() ?: return false
             if (uri.rawFragment != null) return false
             return when (uri.scheme?.lowercase()) {
-                "https" -> host == "claude.ai" || host == "claude.com" || host.endsWith(".claude.ai") || host.endsWith(".claude.com")
+                "https" -> host == "claude.ai" || host == "claude.com" || host.endsWith(".claude.ai") || host.endsWith(".claude.com") || perplexityCallback(uri)
                 "http" -> host == "localhost" || host == "127.0.0.1" || host == "[::1]"
                 else -> false
             }

@@ -71,6 +71,25 @@ class OAuthTest {
         assertTrue((st as OAuth.Step.Redirect).url.contains("error=invalid_request"))
     }
 
+    @Test fun perplexityCallbackIsTheOnlyPerplexityUrlAllowed() {
+        val cb = "https://www.perplexity.ai/rest/connections/oauth_callback"
+        assertTrue(OAuth.redirectAllowed(cb))
+        assertTrue(o.authorize(mapOf("response_type" to "code", "client_id" to "cid", "redirect_uri" to cb, "state" to "z",
+            "code_challenge" to OAuth.s256("v"), "code_challenge_method" to "S256")) is OAuth.Step.Wait)
+        assertEquals("Perplexity", OAuth.clientName(cb))
+        assertEquals("Claude", OAuth.clientName(redirect))
+        for (bad in listOf(
+            "https://www.perplexity.ai/", "https://www.perplexity.ai/rest/connections/other",
+            "https://www.perplexity.ai/rest/connections/oauth_callback/extra", "https://www.perplexity.ai/rest/connections/oauth_callback?next=x",
+            "https://www.perplexity.ai/rest/connections/../connections/oauth_callback", "https://www.perplexity.ai/rest/connections/oauth_callback#f",
+            "https://perplexity.ai/rest/connections/oauth_callback", "https://api.perplexity.ai/rest/connections/oauth_callback",
+            "http://www.perplexity.ai/rest/connections/oauth_callback", "https://www.perplexity.ai:8443/rest/connections/oauth_callback",
+            "https://www.perplexity.ai.evil.com/rest/connections/oauth_callback", "https://evil.com/www.perplexity.ai/rest/connections/oauth_callback",
+            "https://www.perplexity.ai@evil.com/rest/connections/oauth_callback", "https://user@www.perplexity.ai/rest/connections/oauth_callback",
+            "https://www.perplexity.al/rest/connections/oauth_callback", "https://wwwperplexity.ai/rest/connections/oauth_callback",
+        )) assertFalse(bad, OAuth.redirectAllowed(bad))
+    }
+
     @Test fun staticTokenAndPendingExpiry() {
         assertTrue(o.check("Bearer static"))
         assertTrue(o.check("static"))

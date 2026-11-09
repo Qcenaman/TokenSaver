@@ -93,5 +93,11 @@
             android:exported="true"
             android:permission="android.permission.DUMP"
             tools:ignore="ExportedReceiver" />
+
+        <receiver
+            android:name=".service.TokenReceiver"
+            android:exported="true"
+            android:permission="android.permission.DUMP"
+            tools:ignore="ExportedReceiver" />
     </application>
 </manifest>

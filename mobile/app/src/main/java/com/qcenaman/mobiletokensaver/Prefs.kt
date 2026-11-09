@@ -64,7 +64,7 @@ object Prefs {
     val helperSecret: String
         get() = sp.getString("helper_secret", null) ?: rnd(24).also { sp.edit().putString("helper_secret", it).apply() }
 
-    /** OAuth client credentials the user pastes into claude.ai (Advanced settings of the custom connector). */
+    /** OAuth client credentials the user pastes into Claude or Perplexity (the custom connector's Advanced settings). */
     val clientId: String
         get() = sp.getString("client_id", null) ?: ("mts-" + rnd(8)).also { sp.edit().putString("client_id", it).apply() }
     val clientSecret: String

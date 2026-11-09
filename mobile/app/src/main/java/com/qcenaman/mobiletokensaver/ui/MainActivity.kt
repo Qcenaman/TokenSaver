@@ -36,7 +36,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 
-/** Setup: shell power (Shizuku), Tailscale Funnel, connector details for claude.ai, sign-in approvals, log. */
+/** Setup: shell power (Shizuku), Tailscale Funnel, connector details for Claude or Perplexity, sign-in approvals, log. */
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -98,9 +98,9 @@ class MainActivity : ComponentActivity() {
             Text("v$appVersion · ${if (paused) "paused" else "running"}", style = MaterialTheme.typography.bodySmall)
 
             if (pending.isNotEmpty()) {
-                Section("Claude wants to sign in")
+                Section("Sign-in request")
                 pending.forEach { p ->
-                    Text("From ${runCatching { java.net.URI(p.redirectUri).host }.getOrNull() ?: p.redirectUri}", style = MaterialTheme.typography.bodyMedium)
+                    Text("${com.qcenaman.mobiletokensaver.auth.OAuth.clientName(p.redirectUri)} wants to sign in, from ${runCatching { java.net.URI(p.redirectUri).host }.getOrNull() ?: p.redirectUri}", style = MaterialTheme.typography.bodyMedium)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(onClick = { Auth.decide(applicationContext, p.id, true) }) { Text("Approve") }
                         OutlinedButton(onClick = { Auth.decide(applicationContext, p.id, false) }) { Text("Deny") }
@@ -145,15 +145,15 @@ class MainActivity : ComponentActivity() {
                 tunnelLog.takeLast(12).forEach { Text(it, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall) }
             }
 
-            Section("3 · Claude connector")
-            Text("In Claude: Settings → Connectors → Add custom connector. Paste the URL, open Advanced settings, paste Client ID and Client secret.",
+            Section("3 · Connector (Claude or Perplexity)")
+            Text("In Claude: Settings → Connectors → Add custom connector. Paste the URL, open Advanced settings, paste Client ID and Client secret. In Perplexity: Plugins → Add custom → Add MCP connector → Remote, same URL; under Advanced choose OAuth and paste Client ID and Client secret.",
                 style = MaterialTheme.typography.bodySmall)
             val url = (tunnel.url.ifEmpty { "https://${Prefs.tsHostname}.tail90c428.ts.net" }) + "/mcp"
             Copyable("URL", url)
             if (tunnel.url.isEmpty()) Text("The URL only works once Tailscale Funnel above says \"up\".", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
             Copyable("Client ID", Prefs.clientId)
             Copyable("Client secret", secret)
-            Text("Signed-in Claude sessions: $sessions", style = MaterialTheme.typography.bodySmall)
+            Text("Signed-in sessions: $sessions", style = MaterialTheme.typography.bodySmall)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(onClick = { Auth.oauth.revokeAll(); sessions = 0 }) { Text("Sign out all") }
                 OutlinedButton(onClick = { secret = Prefs.newClientSecret(); Auth.oauth.revokeAll(); sessions = 0 }) { Text("New secret") }

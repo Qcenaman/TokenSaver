@@ -99,7 +99,7 @@ class EngineService : Service() {
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
             return Notification.Action.Builder(null, label, pi).build()
         }
-        val state = when { Prefs.paused -> "Paused — Claude's tool calls are refused"; else -> "Running" }
+        val state = when { Prefs.paused -> "Paused — tool calls are refused"; else -> "Running" }
         val b = Notification.Builder(this, CH)
         return b.setContentTitle("MobileTokenSaver")
             .setContentText(state)

@@ -8,7 +8,7 @@ import com.qcenaman.mobiletokensaver.CmdLog
 import com.qcenaman.mobiletokensaver.Prefs
 import com.qcenaman.mobiletokensaver.adb.Pairing
 
-/** Handles Pause / Kill, Approve / Deny for Claude sign-ins, and the inline pairing-code reply on notifications. */
+/** Handles Pause / Kill, Approve / Deny for connector sign-ins, and the inline pairing-code reply on notifications. */
 class ActionReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent?) {
         val app = context.applicationContext

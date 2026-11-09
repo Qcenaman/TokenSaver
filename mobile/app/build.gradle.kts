@@ -4,7 +4,7 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
-val appVersionName = "0.2.0"
+val appVersionName = "0.2.1"
 val appVersionCode = 11
 
 android {

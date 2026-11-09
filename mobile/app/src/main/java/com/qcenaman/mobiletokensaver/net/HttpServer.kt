@@ -9,7 +9,7 @@ import fi.iki.elonen.NanoHTTPD
 
 /**
  * MCP over Streamable HTTP at /mcp (POST JSON-RPC; GET/DELETE answer 405 since the server never pushes),
- * plus the OAuth endpoints claude.ai uses. Reached publicly through the Tailscale Funnel tunnel, which sets
+ * plus the OAuth endpoints claude.ai and Perplexity use. Reached publicly through the Tailscale Funnel tunnel, which sets
  * X-Forwarded-Proto/Host so URLs in the OAuth metadata point at the public address.
  */
 class HttpServer(port: Int, private val mcp: McpServer = McpServer(Registry.tools), private val oauth: () -> OAuth = { Auth.oauth }) : NanoHTTPD(port) {

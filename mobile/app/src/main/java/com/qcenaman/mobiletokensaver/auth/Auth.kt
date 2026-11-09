@@ -29,7 +29,7 @@ object Auth {
     }
 
     fun decide(ctx: Context, id: String, approve: Boolean) {
-        if (oauth.decide(id, approve)) CmdLog.add(if (approve) "Claude sign-in approved" else "Claude sign-in denied")
+        if (oauth.decide(id, approve)) CmdLog.add(if (approve) "Sign-in approved" else "Sign-in denied")
     }
 
     private fun changed(ctx: Context) {
@@ -52,7 +52,7 @@ object Auth {
         val from = runCatching { java.net.URI(p.redirectUri).host }.getOrNull() ?: p.redirectUri
         return Notification.Builder(ctx, App.CH_PAIR)
             .setSmallIcon(R.drawable.ic_engine)
-            .setContentTitle("Claude wants to control this phone")
+            .setContentTitle("${OAuth.clientName(p.redirectUri)} wants to control this phone")
             .setContentText("Sign-in from $from. Approve only if you just connected it.")
             .setContentIntent(open)
             .setCategory(Notification.CATEGORY_CALL)
