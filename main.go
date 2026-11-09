@@ -6,7 +6,7 @@ import (
 	"runtime"
 )
 
-const appVersion = "2.4.0"
+const appVersion = "2.5.0"
 
 func main() {
 	initApp()
@@ -80,6 +80,10 @@ func main() {
 		fmt.Println(appName(), appVersion, "("+runtime.GOOS+")")
 	case "restart-claude":
 		os.Exit(restartClaudeNow())
+	case "autoyes":
+		os.Exit(autoYesCLI(args[1:]))
+	case "build-app-run":
+		os.Exit(buildAppChild(args[1:]))
 	case "terminal":
 		terminal()
 	case "macro":

@@ -1,6 +1,6 @@
 # TokenSaver functions
 
-**Version 2.4.0**
+**Version 2.5.0**
 
 Windows PC helper that Claude hands work to, so the steps run on the PC instead of costing tokens in the chat. Runs as an MCP server in Claude desktop. Everything it keeps is in `D:\Claude Apps\TokenSaver`.
 
@@ -34,6 +34,11 @@ Windows PC helper that Claude hands work to, so the steps run on the PC instead 
 Also: GitHub repos as paths (owner/name[@ref][/sub] in find, read, scan, check, outline and git) read from a temporary copy TokenSaver keeps on the PC, updated as needed and removed after a day unused, so Claude never clones repos itself; tells Claude desktop to prefer TokenSaver over its built-in tools, undo for file jobs, job-end signals through GitHub (no polling), protected system folders; the terminal also reconnects Claude desktop and installs or removes the admin helper.
 
 ## What's new
+### 2.5.0
+- check action:build_app: review, lint, build, emulator test and (push:true) git push in one call; stops at the first failing step with the exact error and lists every step as DONE or NOT DONE
+- Tool labels for chat apps: read-only on scan, find, read, outline, web; non-destructive on check, git, media, chats, local_ai; tools that can delete stay unlabelled
+- Auto-yes (`tokensaver autoyes on|off|status`, or window action:auto_yes): answers yes in the Perplexity window when its newest message only asks to confirm; off by default, off by itself after 2 hours or when the window closes, never for deleting or overwriting, every reply logged
+- From the boot service, build_app and auto-yes run as the signed-in user, so the emulator, the Gradle cache and the GitHub sign-in work through the connector too
 ### 2.4.0
 - Works better with other chat apps (Perplexity and the like): paths and run's cwd accept ~, $HOME, %USERPROFILE% and $env:USERPROFILE (the signed-in user's folder, also when TokenSaver runs as the boot service); a relative path is refused with an example
 - run and the server instructions say it plainly: create or edit files with run_job write/edit steps, one per file, never inside a command

@@ -22,6 +22,9 @@ const isWin = runtime.GOOS == "windows"
 const defaultAIScript = `D:\llama.cpp\start-qwen3.6-27b-nothink.bat`
 
 type Config struct {
+	EmulatorStart  string `json:"emulator_start,omitempty"`  // script that starts the Android test phone (build_app)
+	EmulatorStop   string `json:"emulator_stop,omitempty"`   // script that stops it again
+	EmulatorSerial string `json:"emulator_serial,omitempty"` // its adb serial (default emulator-5554)
 	Workers       int      `json:"workers,omitempty"`
 	ExtraBlocked  []string `json:"extra_blocked,omitempty"`
 	AIScript      string   `json:"ai_script,omitempty"`

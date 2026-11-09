@@ -155,7 +155,7 @@ func scaffoldFiles(kind, name, owner string) (map[string]string, error) {
 				"fun greet(who: String) = \"Hello, $who\"\n\nclass MainActivity : Activity() {\n    override fun onCreate(savedInstanceState: Bundle?) {\n" +
 				"        super.onCreate(savedInstanceState)\n        setContentView(TextView(this).apply { text = greet(\"world\") })\n    }\n}\n",
 			"app/src/test/java/" + path + "/GreetTest.kt": "package " + pkg + "\n\nimport org.junit.Assert.assertEquals\nimport org.junit.Test\n\n" +
-				"class GreetTest {\n    @Test fun greets() = assertEquals(\"Hello, Ana\", greet(\"Ana\"))\n}\n",
+				"class GreetTest {\n    @Test fun greets() {\n        assertEquals(\"Hello, Ana\", greet(\"Ana\"))\n    }\n}\n",
 			".github/workflows/test.yml": ghWorkflow("      - uses: actions/setup-java@v4\n        with:\n          distribution: temurin\n          java-version: 17\n" +
 				"      - run: chmod +x gradlew && ./gradlew testDebugUnitTest assembleDebug --console=plain\n"),
 		}, nil
