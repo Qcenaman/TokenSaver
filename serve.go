@@ -168,6 +168,8 @@ func serveMCPHTTP(w http.ResponseWriter, r *http.Request, authorized func(*http.
 func linkHandler(c linkConfig) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, "ok") })
+	// peer pairing: allowlisted computers of the tailnet's owner get the token (pair.go)
+	mux.HandleFunc("/pair", handlePair)
 	mux.HandleFunc("/mcp", func(w http.ResponseWriter, r *http.Request) {
 		serveMCPHTTP(w, r, func(r *http.Request) bool { return bearer(r) == c.Token }, "mcp")
 	})
@@ -268,6 +270,7 @@ func serveLinkCtx(ctx context.Context, asService bool) error {
 	srv := &http.Server{Handler: linkHandler(c), ReadHeaderTimeout: 10 * time.Second}
 	go keepListening(ctx, srv, c.Port)
 	go adbKeepAlive()
+	go peerAutoPairLoop(ctx)
 
 	if n := killTunnelOrphans(c.Port); n > 0 {
 		serveLog("killed %d leftover cloudflared process(es)", n)

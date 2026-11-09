@@ -9,7 +9,6 @@ package main
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -122,60 +121,20 @@ func phoneCall(c phoneConfig, base, tool string, args json.RawMessage) (string, 
 	if c.Token == "" {
 		return "", nil, errors.New("phone token unknown: run phone pair while the phone is on the LAN (or set it with phone config)")
 	}
-	if len(args) == 0 {
-		args = json.RawMessage("{}")
-	}
-	body, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call",
-		"params": map[string]any{"name": tool, "arguments": args}})
-	req, _ := http.NewRequest("POST", base+"/mcp", bytes.NewReader(body))
-	req.Header.Set("Authorization", "Bearer "+c.Token)
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := phoneHTTP.Do(req)
-	if err != nil {
+	text, imgs, code, err := mcpHTTPCall(phoneHTTP, base, c.Token, tool, args)
+	if code == 0 && err != nil {
 		phoneMu.Lock()
 		phoneBase = ""
 		phoneMu.Unlock()
 		return "", nil, fmt.Errorf("phone unreachable: %v", err)
 	}
-	defer resp.Body.Close()
-	rb, _ := io.ReadAll(io.LimitReader(resp.Body, 32<<20))
-	if resp.StatusCode == 401 {
+	if code == 401 {
 		return "", nil, errors.New("phone rejected the token: run phone pair again")
 	}
-	var r struct {
-		Result struct {
-			Content []struct {
-				Type, Text, Data, MimeType string
-			} `json:"content"`
-			IsError bool `json:"isError"`
-		} `json:"result"`
-		Error *struct{ Message string } `json:"error"`
+	if err != nil && text == "" {
+		return "", nil, errors.New("phone: " + err.Error()) // RPC error or unreadable reply
 	}
-	if err := json.Unmarshal(rb, &r); err != nil {
-		return "", nil, fmt.Errorf("phone: bad reply (%d): %.200s", resp.StatusCode, rb)
-	}
-	if r.Error != nil {
-		return "", nil, errors.New("phone: " + r.Error.Message)
-	}
-	var sb strings.Builder
-	var imgs []toolImage
-	for _, ct := range r.Result.Content {
-		switch ct.Type {
-		case "text":
-			if sb.Len() > 0 {
-				sb.WriteString("\n")
-			}
-			sb.WriteString(ct.Text)
-		case "image":
-			if b, err := base64.StdEncoding.DecodeString(ct.Data); err == nil {
-				imgs = append(imgs, toolImage{data: b, mime: ct.MimeType})
-			}
-		}
-	}
-	if r.Result.IsError {
-		return sb.String(), imgs, errors.New(sb.String())
-	}
-	return sb.String(), imgs, nil
+	return text, imgs, err
 }
 
 // --- adb side -----------------------------------------------------------------------------
