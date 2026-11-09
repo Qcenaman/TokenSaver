@@ -5,7 +5,7 @@ package main
 // demand (compact.go), approvals for risky calls (approvals.go), model switching
 // (model.go) and ContextSaver's own data folder, so existing setups keep working.
 // On when the program is named contextsaver*, TOKENSAVER_MODE=local, or with
-// "mcp --local" / "mcp --for <client>".
+// "--local" / "mcp --for <client>" ("tokensaver --local" is the main way to start it).
 
 import (
 	"encoding/json"
@@ -31,6 +31,25 @@ func detectLocalMode(args []string) bool {
 		}
 	}
 	return false
+}
+
+// localRoot picks local mode's folder: the new one under TokenSaver, or the old
+// ContextSaver folder on a PC that has not moved yet.
+func localRoot(current, legacy string) string {
+	if _, err := os.Stat(current); err != nil {
+		if _, err := os.Stat(legacy); err == nil {
+			return legacy
+		}
+	}
+	return current
+}
+
+// commandArgs drops a leading --local, so "tokensaver --local start coder" runs "start coder".
+func commandArgs(args []string) []string {
+	if len(args) > 0 && args[0] == "--local" {
+		return args[1:]
+	}
+	return args
 }
 
 // appName: how the program calls itself in messages and to MCP clients.

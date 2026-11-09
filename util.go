@@ -67,10 +67,10 @@ func appRoot() string {
 			return v
 		}
 		if isWin {
-			return `D:\Claude Apps\ContextSaver`
+			return localRoot(`D:\Claude Apps\TokenSaver\local`, `D:\Claude Apps\ContextSaver`)
 		}
 		h, _ := os.UserHomeDir()
-		return filepath.Join(h, ".contextsaver")
+		return localRoot(filepath.Join(h, "Claude Apps", "TokenSaver", "local"), filepath.Join(h, ".contextsaver"))
 	}
 	if v := os.Getenv("TOKENSAVER_ROOT"); v != "" {
 		return v

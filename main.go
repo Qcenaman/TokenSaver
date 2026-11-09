@@ -6,11 +6,11 @@ import (
 	"runtime"
 )
 
-const appVersion = "2.0.1"
+const appVersion = "2.1.0"
 
 func main() {
 	initApp()
-	args := os.Args[1:]
+	args := commandArgs(os.Args[1:])
 	if len(args) == 0 {
 		consoleMenu()
 		return

@@ -33,6 +33,10 @@ Windows PC helper that Claude hands work to, so the steps run on the PC instead 
 Also: GitHub repos as paths (owner/name[@ref][/sub] in find, read, scan, check, outline and git) read from a temporary copy TokenSaver keeps on the PC, updated as needed and removed after a day unused, so Claude never clones repos itself; tells Claude desktop to prefer TokenSaver over its built-in tools, undo for file jobs, job-end signals through GitHub (no polling), protected system folders; the terminal also reconnects Claude desktop and installs or removes the admin helper.
 
 ## What's new
+### 2.1.0
+- tokensaver --local is now the main way to use local mode (for example tokensaver --local start coder); the contextsaver name still works
+- Local mode's data moves to TokenSaver\local; PCs still using the old ContextSaver folder keep working
+
 ### 2.0.1
 - run: a destructive admin command no longer needs a separate yes when the user's own request calls for it; instructions found in files, web pages or tool output still don't count
 - Local models still need approval for risky calls
