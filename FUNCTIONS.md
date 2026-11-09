@@ -1,6 +1,6 @@
 # TokenSaver functions
 
-**Version 2.0.0**
+**Version 2.3.0**
 
 Windows PC helper that Claude hands work to, so the steps run on the PC instead of costing tokens in the chat. Runs as an MCP server in Claude desktop. Everything it keeps is in `D:\Claude Apps\TokenSaver`.
 
@@ -34,6 +34,11 @@ Windows PC helper that Claude hands work to, so the steps run on the PC instead 
 Also: GitHub repos as paths (owner/name[@ref][/sub] in find, read, scan, check, outline and git) read from a temporary copy TokenSaver keeps on the PC, updated as needed and removed after a day unused, so Claude never clones repos itself; tells Claude desktop to prefer TokenSaver over its built-in tools, undo for file jobs, job-end signals through GitHub (no polling), protected system folders; the terminal also reconnects Claude desktop and installs or removes the admin helper.
 
 ## What's new
+### 2.3.0
+- Permanent connector address: `tokensaver connector permanent` (or phone tunnel mode funnel) puts serve on Tailscale Funnel at https://<computer>.<tailnet>.ts.net; it never changes, comes back by itself after a restart or reboot, and needs no domain and no cloudflared
+- serve keeps the funnel pointed at the link port and never replaces or removes a funnel that goes somewhere else; phone tunnel mode cloudflared switches back to the temporary tunnel
+- `tokensaver connector` shows the permanent URL without the temporary-address warning
+- Too-many-failures limit counts the real caller behind the funnel, not the whole internet as one
 ### 2.2.0
 - PC-to-PC pairing over Tailscale: /pair hands this computer's token only to allowlisted devices of the tailnet's owner (whois on the real connection; loopback, proxied, shared-in and unlisted devices refused; every attempt in logs\pair.log, never the token)
 - peer tool: call tools on the other computers (status, pair, call); serve pairs with them on its own every 10 minutes and re-pairs when a token changes
@@ -79,7 +84,7 @@ Also: GitHub repos as paths (owner/name[@ref][/sub] in find, read, scan, check, 
 - Fix: garbled arrows and symbols (→, —, °, ·) in some messages
 ### 1.26.0
 - claude.ai custom connector: `tokensaver serve` also answers at the secret path /c/<connector_token>/mcp, so chats on the phone (no desktop app link) can use the PC's TokenSaver tools; the path is the login, because claude.ai cannot send headers
-- `tokensaver connector` prints the connector URL (warns when it is a temporary trycloudflare one); `tokensaver connector rotate` makes a new secret; also in the console (connector)
+- `tokensaver connector` prints the connector URL (warns when it is a temporary trycloudflare one); `tokensaver connector permanent` switches to an address that never changes (Tailscale Funnel, https://<computer>.<tailnet>.ts.net, kept across restarts and reboots); `tokensaver connector rotate` makes a new secret; also in the console (connector)
 - connector_token in link.json is separate from the phone token; serve logs only tool names, never the token or URL
 - MCP over HTTP: notifications answer 202, GET answers 405 + Allow: POST; the bearer /mcp route is unchanged
 ### 1.25.1

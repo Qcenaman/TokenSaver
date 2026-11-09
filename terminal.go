@@ -112,6 +112,11 @@ func terminal() {
 				rotateConnectorToken()
 				say("New connector token made; update the connector in claude.ai.")
 			}
+			if strings.EqualFold(rest, "permanent") {
+				if msg := tunnelUseFunnel(); msg != "" {
+					say("%s", msg)
+				}
+			}
 			say("%s", strings.TrimRight(connectorReport(), "\n"))
 		case "helper":
 			if strings.EqualFold(rest, "remove") {

@@ -1,7 +1,8 @@
 package main
 
 // phoneroutes: the no-Tailscale ways for the phone to reach this PC.
-//   tunnel  — cloudflared quick (or named) tunnel supervised by "tokensaver serve"; URL kept in tunnel.json
+//   tunnel  — cloudflared quick (or named) tunnel, or the Tailscale Funnel (funnel.go: permanent
+//             address), supervised by "tokensaver serve"; URL kept in tunnel.json
 //   public  — a DDNS name / static IP the user forwards on their own router (UPnP helper)
 // Current routes are pushed to the phone (POST /link, no token) and returned in every /phone/report reply.
 
@@ -103,6 +104,9 @@ func tunnelWanted(c linkConfig) bool {
 	case "off", "no", "false":
 		return false
 	case "cloudflared", "on", "yes", "true":
+		return true
+	}
+	if funnelMode(c) {
 		return true
 	}
 	return cloudflaredExe() != ""
@@ -247,6 +251,13 @@ func clientIP(r *http.Request) string {
 	h, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		return r.RemoteAddr
+	}
+	// Tailscale Funnel hands requests over from this machine and names the real caller.
+	if ip := net.ParseIP(h); ip != nil && ip.IsLoopback() {
+		if f := r.Header.Get("X-Forwarded-For"); f != "" {
+			parts := strings.Split(f, ",")
+			return strings.TrimSpace(parts[len(parts)-1])
+		}
 	}
 	return h
 }

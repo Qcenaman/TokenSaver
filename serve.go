@@ -25,7 +25,7 @@ type linkConfig struct {
 	Token          string `json:"token"`
 	ConnectorToken string `json:"connector_token,omitempty"` // claude.ai custom connector: the secret path /c/<token>/mcp
 	Port           int    `json:"port,omitempty"`
-	Tunnel         string `json:"tunnel,omitempty"`          // cloudflared | off; empty = on when cloudflared is installed
+	Tunnel         string `json:"tunnel,omitempty"`          // cloudflared | funnel (Tailscale Funnel: permanent address) | off; empty = on when cloudflared is installed
 	TunnelHostname string `json:"tunnel_hostname,omitempty"` // named tunnel: stable hostname
 	TunnelCreds    string `json:"tunnel_credentials,omitempty"`
 	PublicHost     string `json:"public_host,omitempty"` // DDNS name or IP (optional :port) forwarded on the router
@@ -322,7 +322,7 @@ func serveLinkCtx(ctx context.Context, asService bool) error {
 
 // tunnelKey is what makes a running tunnel outdated when it changes.
 func tunnelKey(c linkConfig) string {
-	return fmt.Sprint(c.Port, "|", c.TunnelHostname, "|", c.TunnelCreds, "|", c.CloudflaredExe)
+	return fmt.Sprint(c.Port, "|", c.TunnelHostname, "|", c.TunnelCreds, "|", c.CloudflaredExe, "|", funnelMode(c))
 }
 
 // keepListening binds the link port and serves until ctx ends; a failed bind is logged with
@@ -489,16 +489,22 @@ func serveLog(format string, a ...any) {
 
 // --- claude.ai connector ------------------------------------------------------------------------
 
-// connectorCLI is "tokensaver connector [rotate]": prints the URL to add in claude.ai
-// (Settings > Connectors > Add custom connector); rotate first makes a new secret token.
+// connectorCLI is "tokensaver connector [permanent|rotate]": prints the URL to add in claude.ai
+// (Settings > Connectors > Add custom connector); permanent first switches to the Tailscale
+// Funnel address that never changes; rotate first makes a new secret token.
 func connectorCLI(args []string) int {
 	if len(args) > 0 {
 		switch strings.ToLower(args[0]) {
 		case "rotate":
 			rotateConnectorToken()
 			fmt.Println("New connector token made; the old connector URL no longer works. Update it in claude.ai:")
+		case "permanent":
+			if msg := tunnelUseFunnel(); msg != "" {
+				fmt.Println(msg)
+				return 1
+			}
 		default:
-			fmt.Println("usage: tokensaver connector [rotate]")
+			fmt.Println("usage: tokensaver connector [permanent|rotate]")
 			return 2
 		}
 	}
@@ -525,8 +531,9 @@ func connectorReport() string {
 	b.WriteString(u + "\n")
 	if strings.Contains(u, ".trycloudflare.com") {
 		b.WriteString("\nWARNING: this is a temporary trycloudflare URL; it changes every time the tunnel restarts,\n")
-		b.WriteString("so the connector in claude.ai would need updating each time. For a permanent connector set up a\n")
-		b.WriteString("named tunnel with a stable hostname (tunnel_hostname + tunnel_credentials in link.json).\n")
+		b.WriteString("so the connector in claude.ai would need updating each time. For an address that never changes run\n")
+		b.WriteString("'tokensaver connector permanent' (Tailscale Funnel, free, no domain needed), or set up a cloudflared\n")
+		b.WriteString("named tunnel (tunnel_hostname + tunnel_credentials in link.json).\n")
 	}
 	b.WriteString("\nKeep this URL secret: whoever has it can use every TokenSaver tool on this PC, including the\n")
 	b.WriteString("admin helper. 'tokensaver connector rotate' makes a new one.\n")

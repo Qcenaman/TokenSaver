@@ -6,3 +6,6 @@ tokensaver.exe
 /admin-log/
 /Saved Jobs/
 /tokensaver
+/local/
+/downloads/
+/config.json

@@ -44,6 +44,11 @@ type tunnelSupervisor struct {
 	ready   func(ctx context.Context, port int) bool
 	save    func(tunnelState)
 	backoff time.Duration
+
+	// Funnel mode (funnel.go).
+	funnel      func(exe string, port int) (string, error)
+	funnelStop  func(exe string, port int)
+	funnelStill func() bool
 }
 
 func (t *tunnelSupervisor) saveState(s tunnelState) {
@@ -66,13 +71,17 @@ func (t *tunnelSupervisor) start(c linkConfig) {
 	if t.done != nil {
 		return
 	}
-	exe := cloudflaredExe
+	fun := funnelMode(c)
+	exe, missing := cloudflaredExe, "cloudflared not installed: "+cloudflaredInstall
+	if fun {
+		exe, missing = tailscaleExe, "Tailscale is not installed (the permanent address uses Tailscale Funnel)"
+	}
 	if t.exePath != nil {
 		exe = t.exePath
 	}
 	p := exe()
 	if p == "" {
-		t.saveState(tunnelState{State: "missing", Error: "cloudflared not installed: " + cloudflaredInstall})
+		t.saveState(tunnelState{State: "missing", Error: missing})
 		return
 	}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -80,6 +89,10 @@ func (t *tunnelSupervisor) start(c linkConfig) {
 	t.cancel, t.done = cancel, done
 	go func() {
 		defer close(done)
+		if fun {
+			t.funnelLoop(ctx, p, c)
+			return
+		}
 		t.loop(ctx, p, c)
 	}()
 }

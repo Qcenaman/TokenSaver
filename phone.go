@@ -394,11 +394,19 @@ func phoneStatus(c phoneConfig) string {
 	return strings.TrimSpace(sb.String())
 }
 
-// phoneTunnel: start/stop flip phone.tunnel in link.json (serve picks it up within 10 s); status reads tunnel.json.
+// phoneTunnel: start/stop/funnel/cloudflared set tunnel in link.json (serve picks it up within 10 s); status reads tunnel.json.
 func phoneTunnel(mode string) string {
 	lc := loadLinkCfg()
 	switch strings.ToLower(mode) {
-	case "start", "on":
+	case "funnel", "permanent":
+		if msg := tunnelUseFunnel(); msg != "" {
+			return msg + "\n" + linkStatusReport()
+		}
+		lc = loadLinkCfg()
+	case "start", "on", "cloudflared":
+		if funnelMode(lc) && !strings.EqualFold(mode, "cloudflared") {
+			break // the permanent address is on already
+		}
 		if cloudflaredExe() == "" {
 			return "cloudflared is not installed. Install it with:\n  " + cloudflaredInstall + "\nthen run phone tunnel start again."
 		}
@@ -424,7 +432,7 @@ func phoneTunnel(mode string) string {
 		}
 	case "", "status":
 	default:
-		return "mode must be start, stop or status"
+		return "mode must be start, stop, status, funnel (permanent address) or cloudflared"
 	}
 	st := loadTunnelState()
 	s := "tunnel: " + st.State

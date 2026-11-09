@@ -170,7 +170,12 @@ func linkStatusReport() string {
 	}
 	pids := cloudflaredPIDs()
 	flag := ""
-	if len(pids) != 1 && tunnelWanted(lc) {
+	switch {
+	case funnelMode(lc):
+		if len(pids) != 0 {
+			flag = " — should be 0 (Tailscale Funnel is the tunnel)"
+		}
+	case len(pids) != 1 && tunnelWanted(lc):
 		flag = " — should be 1"
 	}
 	fmt.Fprintf(&sb, "cloudflared processes: %d %v%s\n", len(pids), pids, flag)
