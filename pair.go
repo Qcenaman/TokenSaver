@@ -466,7 +466,7 @@ func mcpHTTPCall(client *http.Client, base, token, tool string, args json.RawMes
 	}
 	body, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call",
 		"params": map[string]any{"name": tool, "arguments": args}})
-	req, _ := http.NewRequest("POST", base+"/mcp", bytes.NewReader(body))
+	req, _ := http.NewRequestWithContext(context.Background(), "POST", base+"/mcp", bytes.NewReader(body))
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := client.Do(req)
