@@ -176,7 +176,7 @@ func handleElevated(c *net.UnixConn, cfg helperConfig) {
 	}
 	if m := destructiveMatch(req.Command); m != "" && !req.Confirmed {
 		audit("REFUSED (not confirmed, matched %q)  shell=%s  cwd=%s  cmd=%s", m, shell, req.Cwd, oneLine(req.Command))
-		send(elevMsg{Error: fmt.Sprintf("refused: %q can delete or change system settings. Ask the user in chat, and only after they say yes run it again with confirmed: true.", m)})
+		send(elevMsg{Error: fmt.Sprintf("refused: %q can delete or change system settings. "+destructiveHint, m)})
 		return
 	}
 	if req.Cwd != "" {
@@ -397,7 +397,7 @@ func startElevated(req elevRequest, out io.Writer) (*elevProc, error) {
 // startElevatedLocal: TokenSaver itself runs as root (e.g. under sudo).
 func startElevatedLocal(req elevRequest, out io.Writer) (*elevProc, error) {
 	if m := destructiveMatch(req.Command); m != "" && !req.Confirmed {
-		return nil, fmt.Errorf("refused: %q can delete or change system settings. Ask the user in chat, and only after they say yes run it again with confirmed: true.", m)
+		return nil, fmt.Errorf("refused: %q can delete or change system settings. "+destructiveHint, m)
 	}
 	cmd, err := buildCommand(req.Shell, req.Command)
 	if err != nil {

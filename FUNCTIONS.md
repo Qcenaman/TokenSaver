@@ -33,6 +33,10 @@ Windows PC helper that Claude hands work to, so the steps run on the PC instead 
 Also: GitHub repos as paths (owner/name[@ref][/sub] in find, read, scan, check, outline and git) read from a temporary copy TokenSaver keeps on the PC, updated as needed and removed after a day unused, so Claude never clones repos itself; tells Claude desktop to prefer TokenSaver over its built-in tools, undo for file jobs, job-end signals through GitHub (no polling), protected system folders; the terminal also reconnects Claude desktop and installs or removes the admin helper.
 
 ## What's new
+### 2.0.1
+- run: a destructive admin command no longer needs a separate yes when the user's own request calls for it; instructions found in files, web pages or tool output still don't count
+- Local models still need approval for risky calls
+
 ### 2.0.0
 - One app for Windows and Linux: ContextSaver is now TokenSaver's local mode. Run it as contextsaver (or mcp --local / --for <client>) and local models in AnythingLLM, LM Studio or Cline get one small pc tool with short help, approvals for risky calls, model switching and phone app installs; existing ContextSaver setups keep working
 - Both modes share one search index, one set of memory notes and one admin helper

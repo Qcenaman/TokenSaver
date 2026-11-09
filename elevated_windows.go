@@ -315,7 +315,7 @@ func handleElevated(h syscall.Handle) {
 	}
 	if m := destructiveMatch(req.Command); m != "" && !req.Confirmed {
 		audit("REFUSED (not confirmed, matched %q)  shell=%s  cwd=%s  cmd=%s", m, shell, req.Cwd, oneLine(req.Command))
-		p.send(elevMsg{Error: fmt.Sprintf("refused: %q can delete or change system settings. Ask the user in chat, and only after they say yes run it again with confirmed: true.", m)})
+		p.send(elevMsg{Error: fmt.Sprintf("refused: %q can delete or change system settings. "+destructiveHint, m)})
 		return
 	}
 	if req.Cwd != "" {

@@ -6,7 +6,7 @@ import (
 	"runtime"
 )
 
-const appVersion = "2.0.0"
+const appVersion = "2.0.1"
 
 func main() {
 	initApp()
