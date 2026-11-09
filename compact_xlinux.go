@@ -24,7 +24,7 @@ const compactDesc = `The user's Linux PC; you CAN act, so call this instead of r
 open{target} find{path[],name,text} ls{path} read{path,from_line,lines,pattern} write{path,content} edit{path,find,replace} run{command} web{query|url} ai{paths[],question} office{action,path} rag{query|text} sys{action} model{name} more{id}
 git{action:commit|push|login|release|ci,path,message} check{path,action:build|test|compile|review,target} outline{path} new{kind,name} deps export
 Also: plan files job saved browser window media. phone{action:install,app}=user's phone, not adb. help{c}=all args.
-The user's own apps (AdbSaver RemoteAI TokenSaver...) are in D:\Claude Apps + github Qcenaman/<name>: never web-search them. me = about the user.`
+The user's own apps (AdbSaver RemoteAI TokenSaver...) are in ~/Claude Apps + github Qcenaman/<name>: never web-search them. me = about the user.`
 
 // clineDesc: with "mcp --for cline" only what Cline lacks is advertised (Cline has its
 // own read/write/edit/run/find/browser); every command still works.
