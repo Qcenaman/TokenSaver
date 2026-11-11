@@ -146,11 +146,11 @@ class MainActivity : ComponentActivity() {
             }
 
             Section("3 · Connector (Claude or Perplexity)")
-            Text("In Claude: Settings → Connectors → Add custom connector. Paste the URL, open Advanced settings, paste Client ID and Client secret. In Perplexity: Plugins → Add custom → Add MCP connector → Remote, same URL; under Advanced choose OAuth and paste Client ID and Client secret.",
+            Text("In Claude: Settings → Connectors → Add custom connector. Paste the URL and tap Continue; paste Client ID and Client secret when it asks. In Perplexity: Plugins → Add custom → Add MCP connector → Remote, same URL; under Advanced choose OAuth and paste Client ID and Client secret.",
                 style = MaterialTheme.typography.bodySmall)
-            val url = (tunnel.url.ifEmpty { "https://${Prefs.tsHostname}.tail90c428.ts.net" }) + "/mcp"
-            Copyable("URL", url)
-            if (tunnel.url.isEmpty()) Text("The URL only works once Tailscale Funnel above says \"up\".", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+            // Only the address the Funnel node actually got: a second device gets a suffixed name (-1, -2 …).
+            if (tunnel.url.isNotEmpty()) Copyable("URL", tunnel.url.trimEnd('/') + "/mcp")
+            else Text("URL appears here once Tailscale Funnel above says \"up\" (sign in there first).", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
             Copyable("Client ID", Prefs.clientId)
             Copyable("Client secret", secret)
             Text("Signed-in sessions: $sessions", style = MaterialTheme.typography.bodySmall)
