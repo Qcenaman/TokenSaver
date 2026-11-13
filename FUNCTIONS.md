@@ -1,6 +1,6 @@
 # TokenSaver functions
 
-**Version 2.5.0**
+**Version 2.6.0**
 
 Windows PC helper that Claude hands work to, so the steps run on the PC instead of costing tokens in the chat. Runs as an MCP server in Claude desktop. Everything it keeps is in `D:\Claude Apps\TokenSaver`.
 
@@ -34,6 +34,8 @@ Windows PC helper that Claude hands work to, so the steps run on the PC instead 
 Also: GitHub repos as paths (owner/name[@ref][/sub] in find, read, scan, check, outline and git) read from a temporary copy TokenSaver keeps on the PC, updated as needed and removed after a day unused, so Claude never clones repos itself; tells Claude desktop to prefer TokenSaver over its built-in tools, undo for file jobs, job-end signals through GitHub (no polling), protected system folders; the terminal also reconnects Claude desktop and installs or removes the admin helper.
 
 ## What's new
+### 2.6.0
+- Project mode (`tokensaver project <folder>|off|status`, or window action:project): a chat app such as Perplexity codes in that one folder without asking first (edits, deletes, commands, builds, tests, commits, push); the server instructions say so and auto-yes runs with it, also answering delete/overwrite questions that name nothing outside the folder; force-push, reset --hard, uninstall, format and registry questions still wait for the user; refuses a whole drive or the home folder; off by itself after 8 hours
 ### 2.5.0
 - check action:build_app: review, lint, build, emulator test and (push:true) git push in one call; stops at the first failing step with the exact error and lists every step as DONE or NOT DONE
 - Tool labels for chat apps: read-only on scan, find, read, outline, web; non-destructive on check, git, media, chats, local_ai; tools that can delete stay unlabelled

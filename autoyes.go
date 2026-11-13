@@ -43,6 +43,16 @@ func loadAutoYes() autoYesState {
 	return st
 }
 
+// autoYesLimit is how long auto-yes stays on: two hours, or until project mode ends.
+func autoYesLimit() time.Duration {
+	if activeProject() != "" {
+		if d := projectSince().Add(projectMax).Sub(loadAutoYes().Since); d > autoYesMax {
+			return d
+		}
+	}
+	return autoYesMax
+}
+
 func (st autoYesState) alive() bool { return st.On && time.Since(st.Beat) < 20*time.Second }
 
 func autoYesLogf(format string, a ...any) {
@@ -146,8 +156,8 @@ func autoYesRun() int {
 			autoYesLogf("switched off (%d repl(ies))", st.Replies)
 			return 0
 		}
-		if time.Since(st.Since) > autoYesMax {
-			return stop("two hours passed")
+		if time.Since(st.Since) > autoYesLimit() {
+			return stop("its time limit passed")
 		}
 		st.Beat = time.Now()
 		writeJSONAtomic(autoYesPath(), st)
@@ -169,9 +179,12 @@ func autoYesRun() int {
 			continue
 		}
 		answered = key
-		if ayRisky.MatchString(around) {
-			autoYesLogf("left for you (it is about deleting or overwriting): %s", q)
-			continue
+		if ayRisky.MatchString(around) || ayAlwaysRisky.MatchString(around) {
+			if !projectAllows(around, activeProject()) {
+				autoYesLogf("left for you (it is about deleting or overwriting, or names something outside the project): %s", q)
+				continue
+			}
+			autoYesLogf("project mode: delete/overwrite inside %s", activeProject())
 		}
 		if err := autoYesSend(); err != nil {
 			autoYesLogf("could not answer (%v): %s", err, q)
@@ -213,7 +226,7 @@ func autoYesStatus() string {
 	st := loadAutoYes()
 	if st.alive() {
 		return fmt.Sprintf("auto-yes: on since %s, %d repl(ies), switches itself off at %s or when the Perplexity window closes. Log: %s",
-			st.Since.Format("15:04"), st.Replies, st.Since.Add(autoYesMax).Format("15:04"), autoYesLog())
+			st.Since.Format("15:04"), st.Replies, st.Since.Add(autoYesLimit()).Format("15:04"), autoYesLog())
 	}
 	s := "auto-yes: off"
 	if st.Why != "" {
