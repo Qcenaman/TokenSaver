@@ -1,6 +1,6 @@
 # TokenSaver functions
 
-**Version 2.6.1**
+**Version 2.6.3**
 
 Windows PC helper that Claude hands work to, so the steps run on the PC instead of costing tokens in the chat. Runs as an MCP server in Claude desktop. Everything it keeps is in `D:\Claude Apps\TokenSaver`.
 
@@ -34,6 +34,11 @@ Windows PC helper that Claude hands work to, so the steps run on the PC instead 
 Also: GitHub repos as paths (owner/name[@ref][/sub] in find, read, scan, check, outline and git) read from a temporary copy TokenSaver keeps on the PC, updated as needed and removed after a day unused, so Claude never clones repos itself; tells Claude desktop to prefer TokenSaver over its built-in tools, undo for file jobs, job-end signals through GitHub (no polling), protected system folders; the terminal also reconnects Claude desktop and installs or removes the admin helper.
 
 ## What's new
+### 2.6.3
+- git from the boot service (Perplexity and other connectors) trusts the repo and uses the signed-in user's Git settings, so commits no longer fail with "dubious ownership" and carry the user's name and sign-in
+- Auto-yes selects the box's text before typing, so yes no longer lands inside the placeholder ("askyesing")
+### 2.6.2
+- Auto-yes also answers Perplexity's action cards ("Commit the new files ... ?" over the tool call) and messages that end with [Fork] instead of [Helpful]
 ### 2.6.1
 - Auto-yes now clicks Perplexity's "Ask a follow-up" box and types yes like a person (its editor ignored a value set through UI Automation, so earlier replies never arrived); it checks the reply really went out, retries up to 3 times, and logs when it gives up
 ### 2.6.0

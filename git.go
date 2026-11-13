@@ -45,9 +45,19 @@ func gitExec(dir string, timeout time.Duration, args ...string) (string, int, er
 	if _, err := exec.LookPath("git"); err != nil {
 		return "", -1, errors.New("git is not installed or not on PATH")
 	}
+	env := append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GCM_INTERACTIVE=auto")
+	if inServiceSession() {
+		// The boot service runs as SYSTEM, which Git distrusts in the user's repos ("dubious
+		// ownership") and which has no name or sign-in: trust the repo and use the user's own
+		// Git settings, so commits work and carry the user's identity.
+		args = append([]string{"-c", "safe.directory=*"}, args...)
+		if h := userHome(); h != "" && exists(filepath.Join(h, ".gitconfig")) {
+			env = append(env, "GIT_CONFIG_GLOBAL="+filepath.Join(h, ".gitconfig"))
+		}
+	}
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GCM_INTERACTIVE=auto")
+	cmd.Env = env
 	hideWindow(cmd)
 	var out bytes.Buffer
 	cmd.Stdout = &out

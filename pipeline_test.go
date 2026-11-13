@@ -110,6 +110,9 @@ func TestConfirmQuestion(t *testing.T) {
 		"still answering":  {page("Shall I proceed with the build?", "[Stop response (Esc)]  "), false},
 		"user wrote since": {page("Shall I proceed with the build?", "yes  4:41 AM  [Edit query]  [Copy query]\n"), false},
 		"no answer yet":    {"Perplexity\nbuild my app  [Edit query]  [Copy query]\n[Working 10s]\n", false},
+		"action card": {"Perplexity\nmake an app  4:01 PM  [Edit query]  [Copy query]\n[Finished 27s]\n[Projects]  Test the app\n" +
+			"Android app  Commit the appCommit the new to-do app files (todo.py, README.md, .gitignore) in C:\\code\\app with the message “Add app”?\n" +
+			"[History]\nCreate an Automation  {\"action\": \"commit\", \"path\": \"C:\\\\code\\\\app\"}\n[Fork]\nApi key  Ask a follow-up\n[Search]  [Submit]\n", true},
 	} {
 		q, _, key := confirmQuestion(c.text)
 		if (q != "") != c.ask || (key != "") != c.ask {

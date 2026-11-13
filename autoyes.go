@@ -73,6 +73,8 @@ var (
 		regexp.MustCompile(`(?i)\b(do|would) you (want|like) me to\b[^?\n]{0,160}\?`),
 		regexp.MustCompile(`(?i)\b(please )?confirm\b[^?\n]{0,160}\?`),
 		regexp.MustCompile(`(?i)\bconfirm (to|and i|so i)\b[^.\n]{0,80}`),
+		// Perplexity's action card: a step title glued to "Commit the new files ... ?" over the tool call
+		regexp.MustCompile(`(Create|Commit|Run|Write|Edit|Update|Apply|Execute|Build|Push|Start|Make|Add|Install|Delete|Remove|Move|Rename|Test)\b[^?\n]{5,300}\?`),
 	}
 	// a go-ahead for these is the user's to give
 	ayRisky = regexp.MustCompile(`(?i)\b(delet|remov|eras|wip(e|ing)|format|uninstall|overwrit|drop\b|reset\b|force[- ]?push|purge|destroy)`)
@@ -86,7 +88,7 @@ func confirmQuestion(text string) (question, around, key string) {
 	if strings.Contains(text, "[Stop response") {
 		return "", "", ""
 	}
-	end := strings.LastIndex(text, "[Helpful]") // closes the newest answer
+	end := max(strings.LastIndex(text, "[Helpful]"), strings.LastIndex(text, "[Fork]")) // closes the newest answer
 	if end < 0 || strings.Contains(text[end:], "[Edit query]") {
 		return "", "", ""
 	}
@@ -129,7 +131,8 @@ func autoYesSend() error {
 		}
 		return err
 	}
-	typed := []map[string]any{{"wait": 0.3}, {"type": "yes"}, {"wait": 0.3}, {"press": "enter"}}
+	// ctrl+a first, so yes replaces whatever the box holds instead of landing inside it
+	typed := []map[string]any{{"wait": 0.3}, {"press": "ctrl+a"}, {"type": "yes"}, {"wait": 0.3}, {"press": "enter"}}
 	err := do(append([]map[string]any{{"click": "Ask a follow-up"}}, typed...))
 	if err != nil { // no box by that name: click the text on screen instead
 		err = do(append([]map[string]any{{"click_text": "Ask a follow-up"}}, typed...))
