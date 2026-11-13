@@ -3,19 +3,27 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"runtime"
+	"strings"
 )
 
-const appVersion = "2.8.1"
+const appVersion = "2.9.0"
 
 func main() {
 	initApp()
 	args := commandArgs(os.Args[1:])
 	if len(args) == 0 {
+		// TokenSaver-Setup.exe, double-clicked: the Perplexity setup for a new PC
+		if exe, err := os.Executable(); err == nil && strings.Contains(strings.ToLower(filepath.Base(exe)), "setup") {
+			os.Exit(setupPerplexityMain(nil))
+		}
 		consoleMenu()
 		return
 	}
 	switch args[0] {
+	case "setup-perplexity":
+		os.Exit(setupPerplexityMain(args[1:]))
 	case "mcp":
 		for i := 1; i+1 < len(args); i++ {
 			if args[i] == "--for" {

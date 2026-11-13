@@ -78,11 +78,45 @@ func appRoot() string {
 	if v := os.Getenv("TOKENSAVER_ROOT"); v != "" {
 		return v
 	}
+	if r := markedRoot(); r != "" {
+		return r
+	}
 	if isWin {
-		return `D:\Claude Apps\TokenSaver`
+		if exists(legacyWinRoot) {
+			return legacyWinRoot
+		}
+		// a new PC (the setup installer): the user's own local app folder, which every PC has
+		if v := os.Getenv("LOCALAPPDATA"); v != "" && !isSystemProfile(v) {
+			return filepath.Join(v, "TokenSaver")
+		}
+		return legacyWinRoot
 	}
 	h, _ := os.UserHomeDir()
 	return filepath.Join(h, "Claude Apps", "TokenSaver")
+}
+
+const (
+	legacyWinRoot = `D:\Claude Apps\TokenSaver`
+	rootMarker    = "tokensaver-root" // next to app\: this folder is TokenSaver's root
+)
+
+// markedRoot is the root of an installed copy: the program runs from <root>\app and <root>
+// holds the marker the setup installer writes. The service (SYSTEM) and the user find the same
+// folder this way, whatever the user's profile path.
+func markedRoot() string {
+	exe, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	dir := filepath.Dir(exe)
+	if !strings.EqualFold(filepath.Base(dir), "app") {
+		return ""
+	}
+	root := filepath.Dir(dir)
+	if exists(filepath.Join(root, rootMarker)) {
+		return root
+	}
+	return ""
 }
 
 func initApp() {

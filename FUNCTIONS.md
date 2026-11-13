@@ -1,6 +1,6 @@
 # TokenSaver functions
 
-**Version 2.8.1**
+**Version 2.9.0**
 
 Windows PC helper that Claude hands work to, so the steps run on the PC instead of costing tokens in the chat. Runs as an MCP server in Claude desktop. Everything it keeps is in `D:\Claude Apps\TokenSaver`.
 
@@ -34,6 +34,9 @@ Windows PC helper that Claude hands work to, so the steps run on the PC instead 
 Also: GitHub repos as paths (owner/name[@ref][/sub] in find, read, scan, check, outline and git) read from a temporary copy TokenSaver keeps on the PC, updated as needed and removed after a day unused, so Claude never clones repos itself; tells Claude desktop to prefer TokenSaver over its built-in tools, undo for file jobs, job-end signals through GitHub (no polling), protected system folders; the terminal also reconnects Claude desktop and installs or removes the admin helper.
 
 ## What's new
+### 2.9.0
+- Setup installer for other people: the program named TokenSaver-Setup.exe (or `tokensaver setup-perplexity`) installs TokenSaver for the user, installs Tailscale when missing and signs in through the browser, installs the boot service (one permission prompt), allows and turns on Tailscale Funnel, adds the TokenSaver connector in Perplexity by itself (falls back to the address on the clipboard and three steps), and puts a how-to on the Desktop; finished steps are skipped when run again
+- A new PC installs to %LOCALAPPDATA%\TokenSaver (D:\Claude Apps\TokenSaver stays where it already exists); a marker file next to app\ lets the service and the user find the same folder
 ### 2.8.1
 - Project mode has its own tool, **project** (mode: a folder, all, off or status), instead of hiding inside window, so chat apps find it; the server instructions name it
 - While project or full auto mode is on, every tool result ends with a one-line reminder that the user pre-approved the work, so an assistant working from an old tool list still carries on without asking
