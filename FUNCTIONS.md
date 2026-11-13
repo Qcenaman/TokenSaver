@@ -35,7 +35,7 @@ Also: GitHub repos as paths (owner/name[@ref][/sub] in find, read, scan, check, 
 
 ## What's new
 ### 2.6.4
-- The installer puts TokenSaver's app folder on the user's PATH, so `tokensaver ...` works in any new terminal instead of needing the full D:\Claude Apps\TokenSaverpp	okensaver.exe path
+- The installer puts TokenSaver's app folder on the user's PATH, so `tokensaver ...` works in any new terminal instead of needing the full D:\Claude Apps\TokenSaver\app\tokensaver.exe path
 ### 2.6.3
 - git from the boot service (Perplexity and other connectors) trusts the repo and uses the signed-in user's Git settings, so commits no longer fail with "dubious ownership" and carry the user's name and sign-in
 - Auto-yes selects the box's text before typing, so yes no longer lands inside the placeholder ("askyesing")
