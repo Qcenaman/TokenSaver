@@ -18,6 +18,10 @@ import (
 
 const projectMax = 8 * time.Hour
 
+// fullMode is the project "folder" of full mode: anywhere on the PC, any question answered,
+// except wiping or formatting a whole drive.
+const fullMode = "*"
+
 type projectState struct {
 	Folder string    `json:"folder,omitempty"`
 	Since  time.Time `json:"since,omitempty"`
@@ -52,6 +56,12 @@ func projectNote() string {
 	if f == "" {
 		return ""
 	}
+	if f == fullMode {
+		return "Full auto mode is on (the user switched it on and pre-approved everything). Work anywhere on this PC without asking the user first: " +
+			"files in any folder, commands, admin commands (set confirmed:true), installs, settings, services, builds, commits, pushes and force-pushes. " +
+			"Do not stop to ask \"shall I proceed?\" or wait for a yes; carry on to the end and then report what you did. " +
+			"Only ask before wiping or formatting a whole drive."
+	}
 	return "Project mode is on for " + f + " (the user switched it on). Inside that folder, work without asking the user first: " +
 		"create, edit and delete files, run commands, builds and tests, commit and push. Do not stop to ask \"shall I proceed?\" " +
 		"or wait for a yes; carry on to the end and then report what you did. Still ask before touching anything outside that folder, " +
@@ -75,13 +85,18 @@ func inProject(p, folder string) bool {
 var (
 	// absolute paths an assistant writes in a question
 	pathInTextRe = regexp.MustCompile(`(?i)(\b[a-z]:[\\/][^\s"'<>|?*` + "`" + `]*|~[\\/][^\s"'<>|?*` + "`" + `]*|(^|\s)/(home|users|etc|var|usr|opt|mnt)/[^\s"'<>|?*` + "`" + `]*)`)
-	// never answered by auto-yes, project mode or not
+	// wiping a whole drive: never answered, not even in full mode
+	ayDriveWipe = regexp.MustCompile(`(?i)\b(format\s+[a-z]:|format (the |a |this )?(drive|disk|partition)|diskpart|clean (all|disk)|wipe (the |a |this )?(drive|disk|partition)|initialize-disk|clear-disk)`)
+	// never answered by auto-yes in project mode
 	ayAlwaysRisky = regexp.MustCompile(`(?i)\b(format|uninstall|drop\b|reset --hard|force[- ]?push|push --force|purge|destroy|wip(e|ing)|registry|regedit)`)
 )
 
 // projectAllows tells whether a delete/overwrite question may be answered yes in project mode:
 // every path it names is inside the folder, and it is nothing auto-yes always leaves to the user.
 func projectAllows(text, folder string) bool {
+	if folder == fullMode {
+		return !ayDriveWipe.MatchString(text)
+	}
 	if folder == "" || ayAlwaysRisky.MatchString(text) {
 		return false
 	}
@@ -95,6 +110,9 @@ func projectAllows(text, folder string) bool {
 }
 
 func projectOn(folder string) string {
+	if folder == fullMode {
+		return modeOn(fullMode, "full auto mode on")
+	}
 	p, err := expandPath(folder)
 	if err != nil {
 		return "project mode: " + err.Error()
@@ -106,10 +124,14 @@ func projectOn(folder string) string {
 	if v := filepath.VolumeName(p); filepath.Clean(p) == v+string(filepath.Separator) || filepath.Clean(p) == filepath.Clean(userHome()) {
 		return "project mode: pick a project folder, not a whole drive or your home folder: " + p
 	}
-	if err := writeJSONAtomic(projectPath(), projectState{Folder: filepath.Clean(p), Since: time.Now()}); err != nil {
+	return modeOn(filepath.Clean(p), "project mode on for "+p)
+}
+
+func modeOn(folder, logLine string) string {
+	if err := writeJSONAtomic(projectPath(), projectState{Folder: folder, Since: time.Now()}); err != nil {
 		return "project mode could not be saved: " + err.Error()
 	}
-	autoYesLogf("project mode on for %s", p)
+	autoYesLogf("%s", logLine)
 	autoYesOff() // restart so it picks up the project-mode limit
 	ay := autoYesOn()
 	return projectNote() + "\n" + ay + "\nA chat that was already open may need a new chat to read these instructions; until then, follow this message."
@@ -128,11 +150,15 @@ func projectStatus() string {
 	if f == "" {
 		return "project mode: off. " + autoYesStatus()
 	}
+	if f == fullMode {
+		return fmt.Sprintf("full auto mode: on since %s (everything answered yes except wiping a drive), switches itself off at %s. %s",
+			projectSince().Format("15:04"), projectSince().Add(projectMax).Format("15:04"), autoYesStatus())
+	}
 	return fmt.Sprintf("project mode: on for %s since %s, switches itself off at %s. %s",
 		f, projectSince().Format("15:04"), projectSince().Add(projectMax).Format("15:04"), autoYesStatus())
 }
 
-// projectSwitch takes "off", "status", "" (status) or a folder to switch on for.
+// projectSwitch takes "off", "status", "" (status), "all" (full mode) or a folder to switch on for.
 func projectSwitch(arg string) string {
 	a := strings.TrimSpace(arg)
 	switch strings.ToLower(a) {
@@ -140,6 +166,8 @@ func projectSwitch(arg string) string {
 		return projectOff()
 	case "", "status":
 		return projectStatus()
+	case "all", "full", "everything", "*":
+		return projectOn(fullMode)
 	}
 	if strings.HasPrefix(strings.ToLower(a), "on ") {
 		a = strings.TrimSpace(a[3:])

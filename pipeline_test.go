@@ -114,10 +114,31 @@ func TestConfirmQuestion(t *testing.T) {
 			"Android app  Commit the appCommit the new to-do app files (todo.py, README.md, .gitignore) in C:\\code\\app with the message “Add app”?\n" +
 			"[History]\nCreate an Automation  {\"action\": \"commit\", \"path\": \"C:\\\\code\\\\app\"}\n[Fork]\nApi key  Ask a follow-up\n[Search]  [Submit]\n", true},
 	} {
-		q, _, key := confirmQuestion(c.text)
+		q, _, key := confirmQuestionIn(c.text, false)
 		if (q != "") != c.ask || (key != "") != c.ask {
 			t.Errorf("%s: question=%q key=%q, want a question: %v", name, q, key, c.ask)
 		}
+	}
+	// any mention of yes counts, however it is worded
+	for _, s := range []string{
+		"All three files are ready to write. Just say yes and I'll write them.",
+		"Ready when you are (yes / no).",
+		"Okay to go on? A simple yes is enough.",
+	} {
+		if q, _, _ := confirmQuestionIn(page(s, ""), false); q == "" {
+			t.Errorf("a message asking for yes was missed: %q", s)
+		}
+	}
+	// project mode: any closing question counts; outside it, a plain question does not
+	odd := page("Everything is staged. Good to commit these three files with that message?", "")
+	if q, _, _ := confirmQuestionIn(odd, false); q != "" {
+		t.Errorf("outside project mode a plain question was answered: %q", q)
+	}
+	if q, _, _ := confirmQuestionIn(odd, true); q == "" {
+		t.Error("in project mode a closing question was missed")
+	}
+	if q, _, _ := confirmQuestionIn(page("The APK is at app/build/outputs/apk/debug/app-debug.apk.", ""), true); q != "" {
+		t.Errorf("in project mode a plain answer was answered: %q", q)
 	}
 	_, _, k1 := confirmQuestion(page("Shall I proceed with the build?", ""))
 	_, _, k2 := confirmQuestion(page("Shall I proceed with the build?", ""))

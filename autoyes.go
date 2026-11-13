@@ -80,11 +80,23 @@ var (
 	ayRisky = regexp.MustCompile(`(?i)\b(delet|remov|eras|wip(e|ing)|format|uninstall|overwrit|drop\b|reset\b|force[- ]?push|purge|destroy)`)
 )
 
+var (
+	// any sentence of the newest message that mentions yes ("type yes", "just say yes", ...)
+	ayYes = regexp.MustCompile(`(?i)[^.!?\n\[\]]{0,160}\byes\b[^.!?\n\[\]]{0,160}[.!?]?`)
+	// project mode: any question that closes the message, however it is worded
+	ayAnyQuestion = regexp.MustCompile(`[^?\n\[\]]{5,300}\?`)
+)
+
 // confirmQuestion reads a Perplexity window's text (UI Automation, screen order) and returns
 // the confirmation question its newest message is waiting on, the text around it, and a key
 // for that message. All empty when Perplexity is still answering, when the user has written
-// since, or when the newest message asks nothing of the kind.
+// since, or when the newest message asks nothing of the kind. In project mode any closing
+// question counts.
 func confirmQuestion(text string) (question, around, key string) {
+	return confirmQuestionIn(text, activeProject() != "")
+}
+
+func confirmQuestionIn(text string, anyQuestion bool) (question, around, key string) {
 	if strings.Contains(text, "[Stop response") {
 		return "", "", ""
 	}
@@ -102,11 +114,20 @@ func confirmQuestion(text string) (question, around, key string) {
 		tail = strings.ToValidUTF8(tail[len(tail)-900:], "")
 	}
 	at := -1
-	for _, re := range ayAsk {
+	pats := append([]*regexp.Regexp{}, ayAsk...)
+	if anyQuestion {
+		pats = append(pats, ayAnyQuestion)
+	}
+	for _, re := range pats {
 		if locs := re.FindAllStringIndex(tail, -1); len(locs) > 0 {
 			if l := locs[len(locs)-1]; l[0] > at {
 				at, question = l[0], strings.TrimSpace(tail[l[0]:l[1]])
 			}
+		}
+	}
+	if question == "" { // a yes asked for anywhere in the message, not only at its end
+		if m := ayYes.FindAllString(msg, -1); len(m) > 0 {
+			question = strings.TrimSpace(m[len(m)-1])
 		}
 	}
 	if question == "" {

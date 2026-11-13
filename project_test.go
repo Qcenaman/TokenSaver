@@ -44,3 +44,20 @@ func TestInProject(t *testing.T) {
 		t.Error("path outside the project counted as inside")
 	}
 }
+
+func TestFullModeAllows(t *testing.T) {
+	for _, s := range []string{
+		`Install Node.js with winget? Reply yes to proceed.`,
+		`Delete C:\Users\me\Downloads\old and force-push main?`,
+		`Change the registry key so the service starts at boot?`,
+	} {
+		if !projectAllows(s, fullMode) {
+			t.Errorf("full mode left this for the user: %q", s)
+		}
+	}
+	for _, s := range []string{`Format D: to start fresh?`, `Run diskpart and clean the disk?`} {
+		if projectAllows(s, fullMode) {
+			t.Errorf("full mode answered a drive wipe: %q", s)
+		}
+	}
+}
