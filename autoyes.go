@@ -118,19 +118,39 @@ func autoYesWindowText() (string, error) {
 	return toolWindow(jsonRaw(map[string]any{"action": "text", "window": autoYesWindow, "max_chars": 400000}))
 }
 
+// autoYesSend clicks Perplexity's "Ask a follow-up" box, types yes like a person (its editor
+// ignores a value set through UI Automation) and presses Enter. A step that fails comes back
+// as an error, so a reply that never landed is not logged as answered.
 func autoYesSend() error {
-	steps := func(into string) []map[string]any {
-		typ := map[string]any{"type": "yes"}
-		if into != "" {
-			typ["into"] = into
+	do := func(steps []map[string]any) error {
+		out, err := toolWindow(jsonRaw(map[string]any{"action": "do", "window": autoYesWindow, "steps": steps}))
+		if err == nil && strings.Contains(out, "failed:") {
+			err = fmt.Errorf("%s", strings.TrimSpace(out))
 		}
-		return []map[string]any{typ, {"press": "enter"}}
+		return err
 	}
-	_, err := toolWindow(jsonRaw(map[string]any{"action": "do", "window": autoYesWindow, "steps": steps("Ask")}))
-	if err != nil { // no box by that name: type into the window as it is
-		_, err = toolWindow(jsonRaw(map[string]any{"action": "do", "window": autoYesWindow, "steps": steps("")}))
+	typed := []map[string]any{{"wait": 0.3}, {"type": "yes"}, {"wait": 0.3}, {"press": "enter"}}
+	err := do(append([]map[string]any{{"click": "Ask a follow-up"}}, typed...))
+	if err != nil { // no box by that name: click the text on screen instead
+		err = do(append([]map[string]any{{"click_text": "Ask a follow-up"}}, typed...))
 	}
 	return err
+}
+
+// autoYesLanded tells whether the message answered (key) is no longer waiting: the reply was
+// sent, so Perplexity is answering or a newer query stands after it.
+func autoYesLanded(key string) bool {
+	for i := 0; i < 4; i++ {
+		time.Sleep(time.Second)
+		text, err := autoYesWindowText()
+		if err != nil {
+			continue
+		}
+		if _, _, k := confirmQuestion(text); k != key {
+			return true
+		}
+	}
+	return false
 }
 
 // autoYesRun is the watcher (`tokensaver autoyes run`); it runs in the user's session.
@@ -148,8 +168,8 @@ func autoYesRun() int {
 		autoYesLogf("switched off: %s (%d repl(ies))", why, st.Replies)
 		return 0
 	}
-	var answered, seen string
-	missing := 0
+	var answered, seen, failedKey string
+	missing, fails := 0, 0
 	for {
 		time.Sleep(3 * time.Second)
 		if cur := loadAutoYes(); !cur.On || cur.PID != st.PID {
@@ -188,6 +208,18 @@ func autoYesRun() int {
 		}
 		if err := autoYesSend(); err != nil {
 			autoYesLogf("could not answer (%v): %s", err, q)
+			continue
+		}
+		if !autoYesLanded(key) {
+			if key != failedKey {
+				failedKey, fails = key, 0
+			}
+			if fails++; fails < 3 {
+				answered = "" // try again on the next round
+				autoYesLogf("typed yes but it did not reach Perplexity, will retry: %s", q)
+			} else {
+				autoYesLogf("gave up after 3 tries, left for you: %s", q)
+			}
 			continue
 		}
 		st.Replies++
