@@ -6,7 +6,7 @@ import (
 	"runtime"
 )
 
-const appVersion = "2.6.4"
+const appVersion = "2.7.0"
 
 func main() {
 	initApp()
@@ -84,8 +84,8 @@ func main() {
 		os.Exit(autoYesCLI(args[1:]))
 	case "project":
 		os.Exit(projectCLI(args[1:]))
-	case "build-app-run":
-		os.Exit(buildAppChild(args[1:]))
+	case "user-worker":
+		os.Exit(userWorkerMain(args[1:]))
 	case "terminal":
 		terminal()
 	case "macro":

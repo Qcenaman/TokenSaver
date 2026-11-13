@@ -17,6 +17,27 @@ func inServiceSession() bool {
 	return isSystemProfile(h)
 }
 
+// activeUserSession is the console session of the signed-in user; false when nobody is signed in.
+func activeUserSession() (uint32, bool) {
+	s := windows.WTSGetActiveConsoleSessionId()
+	if s == 0xFFFFFFFF {
+		return 0, false
+	}
+	var tok windows.Token
+	if err := windows.WTSQueryUserToken(s, &tok); err != nil {
+		return 0, false
+	}
+	tok.Close()
+	return s, true
+}
+
+// currentSessionID is the Windows session this process runs in.
+func currentSessionID() uint32 {
+	var s uint32
+	windows.ProcessIdToSessionId(uint32(os.Getpid()), &s)
+	return s
+}
+
 // runInUserSession starts exe with args as the signed-in user, on their desktop, and waits up
 // to wait for it to end (0 = don't wait). Only the service account can do this; it lowers the
 // program's rights from the service's to the user's.

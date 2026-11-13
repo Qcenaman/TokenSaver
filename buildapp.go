@@ -132,7 +132,7 @@ func toolBuildApp(raw json.RawMessage) (string, error) {
 					run.out = fmt.Sprintf("build_app FAILED: internal error: %v", p)
 				}
 			}()
-			run.out = buildAppDispatch(root, a)
+			run.out = buildAppPipeline(root, a)
 		}()
 	}
 	wait := 240 * time.Second
@@ -147,48 +147,6 @@ func toolBuildApp(raw json.RawMessage) (string, error) {
 		return fmt.Sprintf("build_app is still running for %s (%s so far). Nothing is finished or pushed yet. Call check action:build_app with the same path again to get the result; that does not start a second run.",
 			root, time.Since(run.start).Round(time.Second)), nil
 	}
-}
-
-// buildAppDispatch runs the pipeline here, or, from the boot service, as the signed-in user:
-// the emulator, the user's Gradle cache and their GitHub sign-in all live in the user's session.
-func buildAppDispatch(root string, a buildAppArgs) string {
-	if !inServiceSession() {
-		return buildAppPipeline(root, a)
-	}
-	dir := filepath.Join(appHome, "cache", "buildapp")
-	os.MkdirAll(dir, 0o755)
-	base := filepath.Join(dir, slug(filepath.Base(root)))
-	argsFile, outFile := base+".args.json", base+".result.txt"
-	a.Path = root
-	os.Remove(outFile)
-	if err := os.WriteFile(argsFile, jsonRaw(a), 0o644); err != nil {
-		return "build_app FAILED: " + err.Error()
-	}
-	exe, _ := os.Executable()
-	if _, err := runInUserSession(exe, []string{"build-app-run", argsFile, outFile}, root, 90*time.Minute); err != nil {
-		return "build_app FAILED: could not run it as the signed-in user: " + err.Error()
-	}
-	b, err := os.ReadFile(outFile)
-	if err != nil || len(b) == 0 {
-		return "build_app FAILED: the run left no result"
-	}
-	return string(b)
-}
-
-// buildAppChild is `tokensaver build-app-run <args.json> <result.txt>`: the pipeline in the user's session.
-func buildAppChild(args []string) int {
-	if len(args) < 2 {
-		return 2
-	}
-	var a buildAppArgs
-	b, err := os.ReadFile(args[0])
-	if err != nil || json.Unmarshal(b, &a) != nil {
-		return 2
-	}
-	if err := os.WriteFile(args[1], []byte(buildAppPipeline(a.Path, a)), 0o644); err != nil {
-		return 1
-	}
-	return 0
 }
 
 var (

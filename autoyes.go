@@ -235,13 +235,7 @@ func autoYesOn() string {
 		return autoYesStatus()
 	}
 	exe, _ := os.Executable()
-	var err error
-	if inServiceSession() {
-		_, err = runInUserSession(exe, []string{"autoyes", "run"}, "", 0)
-	} else {
-		err = exec.Command(exe, "autoyes", "run").Start()
-	}
-	if err != nil {
+	if err := exec.Command(exe, "autoyes", "run").Start(); err != nil {
 		return "auto-yes could not start: " + err.Error()
 	}
 	for i := 0; i < 10 && !loadAutoYes().alive(); i++ {

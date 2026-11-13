@@ -159,6 +159,11 @@ func serveMCPHTTP(w http.ResponseWriter, r *http.Request, authorized func(*http.
 		}
 		json.Unmarshal(req.Params, &p)
 		serveLog("%s: tool %s", via, p.Name) // tool name only: never arguments, tokens or URLs
+		if inServiceSession() { // run it as the signed-in user, not as SYSTEM
+			w.Header().Set("Content-Type", "application/json")
+			w.Write(forwardToWorker(r.Context(), body, req.ID))
+			return
+		}
 	}
 	out, _ := json.Marshal(handleRPC(req))
 	w.Header().Set("Content-Type", "application/json")
