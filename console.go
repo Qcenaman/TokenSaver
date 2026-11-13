@@ -229,6 +229,11 @@ func consoleInstall() {
 		fmt.Println("Installed to", target)
 	}
 	os.WriteFile(filepath.Join(filepath.Dir(target), "version.txt"), []byte(appVersion+"\n"), 0o644)
+	if added, err := addToUserPath(filepath.Dir(target)); err != nil {
+		fmt.Println("Couldn't add TokenSaver to PATH:", err)
+	} else if added {
+		fmt.Println("Added to PATH: open a new terminal and type", appName(), "anywhere")
+	}
 	connected := 0
 	var todo []string
 	for _, p := range claudeConfigPaths() {
