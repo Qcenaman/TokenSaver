@@ -1,6 +1,6 @@
 # TokenSaver functions
 
-**Version 2.6.4**
+**Version 2.7.0**
 
 Windows PC helper that Claude hands work to, so the steps run on the PC instead of costing tokens in the chat. Runs as an MCP server in Claude desktop. Everything it keeps is in `D:\Claude Apps\TokenSaver`.
 
@@ -34,6 +34,10 @@ Windows PC helper that Claude hands work to, so the steps run on the PC instead 
 Also: GitHub repos as paths (owner/name[@ref][/sub] in find, read, scan, check, outline and git) read from a temporary copy TokenSaver keeps on the PC, updated as needed and removed after a day unused, so Claude never clones repos itself; tells Claude desktop to prefer TokenSaver over its built-in tools, undo for file jobs, job-end signals through GitHub (no polling), protected system folders; the terminal also reconnects Claude desktop and installs or removes the admin helper.
 
 ## What's new
+### 2.7.0
+- Tool calls through the connector and the phone link now run as the signed-in Windows user instead of SYSTEM: the boot service starts a TokenSaver "user worker" in the user's session and hands it every call over 127.0.0.1 with a key only that service run knows; files, Git, builds, windows and sign-ins are the user's own
+- With nobody signed in to Windows (right after a reboot, before the login screen), tool calls say so instead of running as SYSTEM
+- Removed the SYSTEM workarounds this replaces: git's safe.directory trust and borrowed .gitconfig, build_app's separate run-as-user step (build-app-run), and auto-yes's separate run-as-user start
 ### 2.6.4
 - The installer puts TokenSaver's app folder on the user's PATH, so `tokensaver ...` works in any new terminal instead of needing the full D:\Claude Apps\TokenSaver\app\tokensaver.exe path
 ### 2.6.3
