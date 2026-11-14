@@ -1,6 +1,6 @@
 # TokenSaver functions
 
-**Version 2.10.0**
+**Version 2.11.0**
 
 Windows PC helper that Claude hands work to, so the steps run on the PC instead of costing tokens in the chat. Runs as an MCP server in Claude desktop. Everything it keeps is in `D:\Claude Apps\TokenSaver`.
 
@@ -34,6 +34,15 @@ Windows PC helper that Claude hands work to, so the steps run on the PC instead 
 Also: GitHub repos as paths (owner/name[@ref][/sub] in find, read, scan, check, outline and git) read from a temporary copy TokenSaver keeps on the PC, updated as needed and removed after a day unused, so Claude never clones repos itself; tells Claude desktop to prefer TokenSaver over its built-in tools, undo for file jobs, job-end signals through GitHub (no polling), protected system folders; the terminal also reconnects Claude desktop and installs or removes the admin helper.
 
 ## What's new
+### 2.11.0
+- Perplexity gets whole outputs (no token saving): run/job show the whole output, read the whole file, find/scan/outline/web/browser/window full results, screenshots 1600 px, descriptions without the token-saving steering; ceiling full_output_max_chars (400000), list full_output_clients in config.json (default perplexity); Claude, the phone and RemoteAI unchanged
+- Perplexity screenshots also come back in words (OCR text plus a local AI description), and its window, browser and local_ai descriptions name the local AI helper
+- local AI uses the ELAI hub (D:\ELAI\start-hub.cmd, model coder) when no other script is set; model list shows the hub's models; vision read from models.ini
+- thinking models: room for thinking and one retry when only reasoning came back, so answers are no longer empty
+- clear errors: a missing start script is named with the setting to fix; the GPU reminder names every model server holding VRAM with its model file
+- config.json is re-read when it changes; a config.json in the wrong folder is reported
+- auto-yes: your off stays off through restarts, updates and project mode until you switch it on
+- Perplexity is told to re-sync its tool list when TokenSaver's tools changed
 ### 2.10.0
 - browser: screenshot (or a local AI answer about it), ocr of the page as drawn (canvas too), console messages and uncaught errors since the page opened, and do steps sent to the page (click_at, move, drag, scroll, hold and press keys, type, click on OCR text) with then: screenshot / ocr / text / console; changes:true says whether the picture or text changed; open takes file paths
 - auto-yes reads only Perplexity's newest answer (never your query bubbles, the sidebar history, the input box or its own "yes"), only when that answer ends with a go-ahead question, logs the question alone and answers each question once

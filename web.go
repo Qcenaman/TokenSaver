@@ -674,11 +674,7 @@ func toolWeb(raw json.RawMessage) (string, error) {
 		req.URLs = append(StrList{a.URL}, req.URLs...)
 	}
 	req.Action = strings.ToLower(req.Action)
-	maxc := a.MaxChars
-	if maxc <= 0 {
-		maxc = 6000
-	}
-	maxc = min(maxc, 30000)
+	maxc := outCap(isFullCall(raw), a.MaxChars, 6000, 30000)
 	switch req.Action {
 	case "search":
 		if strings.TrimSpace(req.Query) == "" {

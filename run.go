@@ -345,7 +345,7 @@ func summarizeOutput(p string, tailN int) outSummary {
 	return s
 }
 
-func formatRun(s *JobState) string {
+func formatRunOpt(s *JobState, full bool) string {
 	var b strings.Builder
 	title := s.ID
 	if s.Name != "" {
@@ -376,6 +376,14 @@ func formatRun(s *JobState) string {
 	tailN := 15
 	if s.Tail != nil {
 		tailN = *s.Tail
+	}
+	if full && s.Tail == nil {
+		b.WriteString(fullJobOutput(p, s.Status != "running"))
+		b.WriteString("\nFull output: " + p)
+		if s.Status == "running" {
+			b.WriteString("\nCheck again with job status id=" + s.ID + " (wait_seconds to wait), stop it with job cancel.")
+		}
+		return b.String()
 	}
 	sum := summarizeOutput(p, tailN)
 	if len(sum.errors) > 0 {
@@ -430,7 +438,7 @@ func toolRun(raw json.RawMessage) (string, error) {
 		}
 	}
 	s := j.snapshot()
-	out := formatState(&s)
+	out := formatStateOpt(&s, isFullCall(raw))
 	if a.Summary && finished {
 		out += runSummary(s.ID)
 	}
@@ -457,4 +465,32 @@ func runSummary(id string) string {
 		return ""
 	}
 	return "\nSummary (local AI; full log in " + p + "):\n" + strings.TrimSpace(s) + "\n"
+}
+
+// fullJobOutput is a command's whole output (stdout and stderr) for full-output clients, cut only
+// at full_output_max_chars, keeping the end, which tells how it went.
+func fullJobOutput(p string, finished bool) string {
+	b, err := os.ReadFile(p)
+	if err != nil || len(strings.TrimSpace(string(b))) == 0 {
+		if finished {
+			return "\n(no output)"
+		}
+		return ""
+	}
+	lines := strings.Split(strings.ReplaceAll(string(b), "\r\n", "\n"), "\n")
+	for i, l := range lines { // progress bars redraw with \r: keep what each line ended as
+		lines[i] = stripCtl(l)
+	}
+	t := strings.TrimRight(strings.Join(lines, "\n"), "\n")
+	maxc := fullOutputMaxChars()
+	note := ""
+	if len(t) > maxc {
+		cut := len(t) - maxc
+		for cut < len(t) && (t[cut]&0xC0) == 0x80 {
+			cut++
+		}
+		note = fmt.Sprintf("\n[cut: the first %d of %d characters are left out here; the whole output is in the file below]", cut, len(t))
+		t = t[cut:]
+	}
+	return fmt.Sprintf("\nOutput (%s lines):\n%s%s", hc(int64(strings.Count(t, "\n")+1)), t, note)
 }

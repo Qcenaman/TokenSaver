@@ -3,6 +3,8 @@ package main
 import (
 	"fmt"
 	"net/http"
+	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -35,6 +37,11 @@ func gpuUsers() ([]*gpuUser, string) {
 			if strings.Contains(c, "tokensaver") || strings.Contains(n, "tokensaver") {
 				continue
 			}
+			if what := aiServerProc(n, p.cmd); what != "" { // another model server: name it and its model
+				u := &gpuUser{what: what, pids: []int{p.pid}}
+				users = append(users, u)
+				continue
+			}
 			for _, a := range gpuApps {
 				if a.match(n, c) {
 					u := found[a.what]
@@ -46,6 +53,17 @@ func gpuUsers() ([]*gpuUser, string) {
 					u.pids = append(u.pids, p.pid)
 					break
 				}
+			}
+		}
+	}
+	if per := vramByPid(); len(per) > 0 {
+		for _, u := range users {
+			mb := 0
+			for _, id := range u.pids {
+				mb += per[id]
+			}
+			if mb > 0 {
+				u.what += fmt.Sprintf(", %.1f GB VRAM", float64(mb)/1024)
 			}
 		}
 	}
@@ -162,4 +180,52 @@ func gpuNoted(note, out string) string {
 		return out
 	}
 	return note + "\n" + out
+}
+
+var (
+	modelArgRe  = regexp.MustCompile(`(?i)(?:^|\s)(?:-m|--model|-hf|--hf-repo|--models-preset)[ =]+(?:"([^"]+)"|(\S+))`)
+	aiServerExe = regexp.MustCompile(`(?i)^(llama-server|ollama|ollama_llama_server|llama_server|lms|lm studio|koboldcpp|vllm)(\.exe)?$`)
+)
+
+// aiServerProc describes a local model server process ("" when p isn't one): the program and the
+// model file it serves, so the user knows what to close. Embedding servers (TokenSaver's search
+// index) are small and left out.
+func aiServerProc(name, cmd string) string {
+	n := strings.ToLower(name)
+	if !aiServerExe.MatchString(n) && !strings.Contains(strings.ToLower(cmd), "llama-server") {
+		return ""
+	}
+	if strings.Contains(cmd, "--embedding") || strings.Contains(strings.ToLower(n), "tokensaver") {
+		return ""
+	}
+	what := name
+	if m := modelArgRe.FindStringSubmatch(cmd); m != nil {
+		v := m[1]
+		if v == "" {
+			v = m[2]
+		}
+		what += " serving " + filepath.Base(strings.ReplaceAll(v, "\\", "/"))
+	}
+	return what
+}
+
+// vramByPid is each process's VRAM in MB, as nvidia-smi reports it (empty when it can't tell).
+func vramByPid() map[int]int {
+	out, err := runQuiet(15*time.Second, "nvidia-smi", "--query-compute-apps=pid,used_memory", "--format=csv,noheader,nounits")
+	if err != nil {
+		return nil
+	}
+	m := map[int]int{}
+	for _, l := range strings.Split(strings.TrimSpace(out), "\n") {
+		f := strings.Split(l, ",")
+		if len(f) < 2 {
+			continue
+		}
+		pid, e1 := strconv.Atoi(strings.TrimSpace(f[0]))
+		mb, e2 := strconv.Atoi(strings.TrimSpace(f[1]))
+		if e1 == nil && e2 == nil {
+			m[pid] += mb
+		}
+	}
+	return m
 }

@@ -312,11 +312,7 @@ func toolBrowser(raw json.RawMessage) (string, error) {
 	}
 	browserMu.Lock()
 	defer browserMu.Unlock()
-	maxc := a.MaxChars
-	if maxc <= 0 {
-		maxc = 4000
-	}
-	maxc = min(maxc, 30000)
+	maxc := outCap(isFullCall(raw), a.MaxChars, 4000, 30000)
 	act := strings.ToLower(a.Action)
 	if act == "close" {
 		if ts, err := cdpTargets(); err == nil && len(ts) > 0 {

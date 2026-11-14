@@ -153,19 +153,66 @@ func serveMCPHTTP(w http.ResponseWriter, r *http.Request, authorized func(*http.
 		w.WriteHeader(http.StatusAccepted) // notification: no reply (streamable HTTP wants 202)
 		return
 	}
+	// Which client is this? claude.ai and Perplexity share the connector path, so the clientInfo
+	// of initialize decides, remembered under the session id handed out with it.
+	var client string
+	if req.Method == "initialize" {
+		var p struct {
+			ClientInfo struct{ Name, Version string } `json:"clientInfo"`
+		}
+		json.Unmarshal(req.Params, &p)
+		client = p.ClientInfo.Name
+		sid := newMCPSession(p.ClientInfo.Name, p.ClientInfo.Version, r.UserAgent())
+		w.Header().Set("Mcp-Session-Id", sid)
+		req.full = isFullOutputClient(p.ClientInfo.Name, r.UserAgent())
+		mode := "short results"
+		if req.full {
+			mode = "full output"
+		}
+		serveLog("%s: client %q %s, user agent %q: %s", via, clip(p.ClientInfo.Name, 60), clip(p.ClientInfo.Version, 30), clip(r.UserAgent(), 80), mode)
+	} else {
+		client = mcpSessionClient(r.Header.Get("Mcp-Session-Id"))
+		if client == "" && isFullOutputClient("", r.UserAgent()) {
+			client = r.UserAgent()
+		}
+		req.full = isFullOutputClient(client, r.UserAgent())
+	}
+	note := ""
+	if req.full && req.Method == "tools/call" {
+		note = resyncNotice(client)
+	}
+	if req.full && req.Method == "tools/call" {
+		body = markFullOutputRequest(body)
+		json.Unmarshal(body, &req)
+	}
 	if req.Method == "tools/call" {
 		var p struct {
 			Name string `json:"name"`
 		}
 		json.Unmarshal(req.Params, &p)
 		serveLog("%s: tool %s", via, p.Name) // tool name only: never arguments, tokens or URLs
-		if inServiceSession() { // run it as the signed-in user, not as SYSTEM
+		if inServiceSession() {              // run it as the signed-in user, not as SYSTEM
+			out := forwardToWorker(r.Context(), body, req.ID)
+			if note != "" {
+				out = appendResultNote(out, note)
+			}
 			w.Header().Set("Content-Type", "application/json")
-			w.Write(forwardToWorker(r.Context(), body, req.ID))
+			w.Write(out)
 			return
 		}
 	}
-	out, _ := json.Marshal(handleRPC(req))
+	resp := handleRPC(req)
+	if req.Method == "tools/list" {
+		if res, ok := resp["result"].(map[string]any); ok {
+			if defs, ok := res["tools"].([]json.RawMessage); ok {
+				noteToolsListed(client, defs)
+			}
+		}
+	}
+	out, _ := json.Marshal(resp)
+	if note != "" {
+		out = appendResultNote(out, note)
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.Write(out)
 }

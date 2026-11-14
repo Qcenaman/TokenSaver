@@ -35,6 +35,7 @@ type gitArgs struct {
 	Update   any      `json:"update"`
 	MaxChars int      `json:"max_chars"`
 	Wait     *int     `json:"wait_seconds"`
+	FullOut  bool     `json:"_full_output"`
 }
 
 // gitNetFlags makes Git Credential Manager open the browser sign-in directly
@@ -208,6 +209,9 @@ func toolGit(raw json.RawMessage) (res string, rerr error) {
 	maxChars := a.MaxChars
 	if maxChars <= 0 {
 		maxChars = 6000
+		if a.FullOut {
+			maxChars = fullOutputMaxChars()
+		}
 	}
 
 	if action == "login" || action == "signin" || action == "auth" {

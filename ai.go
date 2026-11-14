@@ -244,6 +244,11 @@ type AIRequest struct {
 	GPU        string   `json:"gpu,omitempty"`
 }
 
+const (
+	aiMinTokens   = 4096  // floor for max_tokens: a thinking model needs room before its answer
+	aiRetryTokens = 16384 // one retry with this when only reasoning came back
+)
+
 type aiClient struct {
 	kind, base, model string
 	hc                *http.Client
@@ -300,7 +305,11 @@ func (c *aiClient) chatImg(system, user string, img []byte, maxTok int) (string,
 		}
 	} else {
 		endpoint = c.base + "/v1/chat/completions"
-		body = map[string]any{"model": c.model, "messages": msgs, "temperature": 0.1, "max_tokens": maxTok + 1024, "stream": false}
+		// Reasoning models think before answering: leave room for it, or the answer comes back empty.
+		body = map[string]any{"model": c.model, "messages": msgs, "temperature": 0.1, "max_tokens": max(maxTok+1024, aiMinTokens), "stream": false}
+		if c.noThink {
+			body["chat_template_kwargs"] = map[string]any{"enable_thinking": false}
+		}
 	}
 	b, _ := json.Marshal(body)
 	resp, err := c.hc.Post(endpoint, "application/json", bytes.NewReader(b))
@@ -310,8 +319,8 @@ func (c *aiClient) chatImg(system, user string, img []byte, maxTok int) (string,
 	defer resp.Body.Close()
 	rb, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
 	if resp.StatusCode != 200 {
-		if c.kind == "ollama" && c.noThink && bytes.Contains(bytes.ToLower(rb), []byte("think")) {
-			c.noThink = false
+		if c.noThink && (bytes.Contains(bytes.ToLower(rb), []byte("think")) || bytes.Contains(rb, []byte("chat_template_kwargs"))) {
+			c.noThink = false // this server doesn't take the "no thinking" switch: ask without it
 			return c.chatImg(system, user, img, maxTok)
 		}
 		return "", fmt.Errorf("local AI error %d: %s", resp.StatusCode, clip(string(rb), 200))
@@ -329,13 +338,18 @@ func (c *aiClient) chatImg(system, user string, img []byte, maxTok int) (string,
 		var r struct {
 			Choices []struct {
 				Message struct {
-					Content string `json:"content"`
+					Content   string `json:"content"`
+					Reasoning string `json:"reasoning_content"`
 				} `json:"message"`
 			} `json:"choices"`
 		}
 		json.Unmarshal(rb, &r)
 		if len(r.Choices) > 0 {
 			out = r.Choices[0].Message.Content
+			// all of the token limit went to thinking: once more with much more room
+			if strings.TrimSpace(cleanAI(out)) == "" && strings.TrimSpace(r.Choices[0].Message.Reasoning) != "" && maxTok < aiRetryTokens {
+				return c.chatImg(system, user, img, aiRetryTokens)
+			}
 		}
 	}
 	return cleanAI(out), nil
@@ -432,7 +446,15 @@ func (c *aiClient) healthy() bool {
 func (c *aiClient) loadCtx() {
 	c.chunk = 12000
 	qc := &http.Client{Timeout: 3 * time.Second}
-	resp, err := qc.Get(c.base + "/props")
+	u := c.base + "/props"
+	if c.model != "" { // a llama-server router answers for the model named here; plain servers ignore it
+		u += "?model=" + url.QueryEscape(c.model)
+	}
+	req, err := http.NewRequestWithContext(context.Background(), "GET", u, nil)
+	if err != nil {
+		return
+	}
+	resp, err := qc.Do(req)
 	if err != nil {
 		return
 	}
@@ -492,9 +514,14 @@ var aiMu sync.Mutex
 func openAI(j *Job, want string) (*aiClient, func(), error) {
 	noop := func() {}
 	hc := &http.Client{Timeout: 10 * time.Minute}
+	if cfg.AIEndpoint == "" && cfg.AIScript != "" && !exists(cfg.AIScript) {
+		if c := (&aiClient{kind: "openai", base: "http://127.0.0.1:1234"}); !c.healthy() {
+			return nil, noop, fmt.Errorf("local AI start script not found: %s; set ai_script in %s (the ELAI hub is %s)", cfg.AIScript, filepath.Join(appHome, "config.json"), elaiHubScript)
+		}
+	}
 	if cfg.AIEndpoint == "" && cfg.AIScript != "" && exists(cfg.AIScript) {
 		host, port := scriptAddr(cfg.AIScript)
-		c := &aiClient{kind: "openai", base: fmt.Sprintf("http://%s:%d", host, port), hc: hc}
+		c := &aiClient{kind: "openai", base: fmt.Sprintf("http://%s:%d", host, port), hc: hc, noThink: true}
 		finish := func(stop func()) (*aiClient, func(), error) {
 			ms, err := c.models()
 			if err == nil {
@@ -508,6 +535,9 @@ func openAI(j *Job, want string) (*aiClient, func(), error) {
 				return nil, noop, err
 			}
 			c.loadCtx()
+			if !c.vision && isHubScript(cfg.AIScript) { // a hub model that isn't loaded yet: models.ini says
+				c.vision = hubVision(cfg.AIScript, c.model)
+			}
 			return c, stop, nil
 		}
 		if c.healthy() {
@@ -603,7 +633,10 @@ func openAI(j *Job, want string) (*aiClient, func(), error) {
 		}
 		return c, noop, nil
 	}
-	return nil, noop, fmt.Errorf("no local AI found (set ai_script in config, or start Ollama / LM Studio): %v", lastErr)
+	if cfg.AIEndpoint != "" {
+		return nil, noop, fmt.Errorf("the local AI at ai_endpoint %s didn't answer: %v", cfg.AIEndpoint, lastErr)
+	}
+	return nil, noop, fmt.Errorf("no local AI: no start script is set (ai_script in %s, e.g. %s) and nothing answered on Ollama (port 11434) or LM Studio (port 1234): %v", filepath.Join(appHome, "config.json"), elaiHubScript, lastErr)
 }
 
 // servedModel: the first model id a server on this port reports ("" if none).

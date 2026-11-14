@@ -289,11 +289,7 @@ func toolWindow(raw json.RawMessage) (string, error) {
 		return "", errNoInput
 	}
 	dpiAware()
-	maxc := a.MaxChars
-	if maxc <= 0 {
-		maxc = 4000
-	}
-	maxc = min(maxc, 30000)
+	maxc := outCap(isFullCall(raw), a.MaxChars, 4000, 30000)
 	act := strings.ToLower(a.Action)
 	if act == "" || act == "list" {
 		var b strings.Builder

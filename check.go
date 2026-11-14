@@ -30,6 +30,7 @@ type checkArgs struct {
 	Fix    bool   `json:"fix"`
 	Only   string `json:"only"`
 	Max    int    `json:"max"`
+	Full   bool   `json:"_full_output"`
 }
 
 type ckIssue struct {
@@ -689,9 +690,7 @@ func toolCodeCheck(raw json.RawMessage) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if a.Max <= 0 {
-		a.Max = 40
-	}
+	a.Max = countCap(a.Full, a.Max, 40, 1<<30)
 	root, single, label, notes, err := ckTarget(&a)
 	if err != nil {
 		return "", err

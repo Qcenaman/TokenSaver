@@ -14,6 +14,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -22,26 +23,26 @@ const isWin = runtime.GOOS == "windows"
 const defaultAIScript = `D:\llama.cpp\start-qwen3.6-27b-nothink.bat`
 
 type Config struct {
-	EmulatorStart  string `json:"emulator_start,omitempty"`  // script that starts the Android test phone (build_app)
-	EmulatorStop   string `json:"emulator_stop,omitempty"`   // script that stops it again
-	EmulatorSerial string `json:"emulator_serial,omitempty"` // its adb serial (default emulator-5554)
-	Workers       int      `json:"workers,omitempty"`
-	ExtraBlocked  []string `json:"extra_blocked,omitempty"`
-	AIScript      string   `json:"ai_script,omitempty"`
-	AIEndpoint    string   `json:"ai_endpoint,omitempty"`
-	AIModel       string   `json:"ai_model,omitempty"`
-	AIIdleMinutes int      `json:"ai_idle_minutes,omitempty"` // idle time before TokenSaver stops a server it started (default 15)
-	AIKeepRunning bool     `json:"ai_keep_running,omitempty"` // pin: never auto-stop the local AI server
-	NotifyRepo    string   `json:"notify_repo,omitempty"`
+	EmulatorStart  string   `json:"emulator_start,omitempty"`  // script that starts the Android test phone (build_app)
+	EmulatorStop   string   `json:"emulator_stop,omitempty"`   // script that stops it again
+	EmulatorSerial string   `json:"emulator_serial,omitempty"` // its adb serial (default emulator-5554)
+	Workers        int      `json:"workers,omitempty"`
+	ExtraBlocked   []string `json:"extra_blocked,omitempty"`
+	AIScript       string   `json:"ai_script,omitempty"`
+	AIEndpoint     string   `json:"ai_endpoint,omitempty"`
+	AIModel        string   `json:"ai_model,omitempty"`
+	AIIdleMinutes  int      `json:"ai_idle_minutes,omitempty"` // idle time before TokenSaver stops a server it started (default 15)
+	AIKeepRunning  bool     `json:"ai_keep_running,omitempty"` // pin: never auto-stop the local AI server
+	NotifyRepo     string   `json:"notify_repo,omitempty"`
 
 	// local mode (serving a local model, as ContextSaver did)
 	Models              map[string]string `json:"models,omitempty"`
 	MaxOut              int               `json:"max_out,omitempty"`
-	Frontend            string            `json:"frontend,omitempty"`       // anythingllm | lmstudio; empty = AnythingLLM if installed
-	Approval            string            `json:"approval,omitempty"`       // "dangerous" (default): only dangerous calls wait in RemoteAI; "wait"/"client": every risky call; "confirm": in-chat token
-	ApprovalToken       string            `json:"approval_token,omitempty"` // the approval server's bearer token
-	ApprovalPort        int               `json:"approval_port,omitempty"`  // default 1235
-	LMSToken            string            `json:"lms_token,omitempty"`      // LM Studio API token
+	Frontend            string            `json:"frontend,omitempty"`                  // anythingllm | lmstudio; empty = AnythingLLM if installed
+	Approval            string            `json:"approval,omitempty"`                  // "dangerous" (default): only dangerous calls wait in RemoteAI; "wait"/"client": every risky call; "confirm": in-chat token
+	ApprovalToken       string            `json:"approval_token,omitempty"`            // the approval server's bearer token
+	ApprovalPort        int               `json:"approval_port,omitempty"`             // default 1235
+	LMSToken            string            `json:"lms_token,omitempty"`                 // LM Studio API token
 	ToolCallLimit       int               `json:"tool_call_limit_seconds,omitempty"`   // longer pc calls continue in the background (default 50 for LM Studio)
 	ApprovalWaitSeconds int               `json:"approval_wait_seconds,omitempty"`     // approval "wait": how long a call blocks (default 600)
 	ApprovalWaitCap     int               `json:"approval_wait_cap_seconds,omitempty"` // below the client's tool-call timeout: then fall back to "call again"
@@ -54,6 +55,11 @@ type Config struct {
 	ModelIdleMinutes    int               `json:"model_idle_minutes,omitempty"` // idle stop of model servers local mode started (default 15)
 	Drives              map[string]string `json:"drives,omitempty"`             // Linux: Windows drive letter -> mount folder, e.g. {"D": "/mnt/d"}
 	LlamaServer         string            `json:"llama_server,omitempty"`       // Linux llama-server (default: ~/llama.cpp, then PATH)
+
+	// MCP clients that get whole outputs instead of token-saving short ones (default ["perplexity"],
+	// matched case-insensitive as a substring of clientInfo.name or the User-Agent)
+	FullOutputClients  []string `json:"full_output_clients,omitempty"`
+	FullOutputMaxChars int      `json:"full_output_max_chars,omitempty"` // ceiling per result for those clients (default 400000)
 }
 
 var (
@@ -135,18 +141,64 @@ func initApp() {
 	if gm := filepath.Join(appHome, "go.mod"); !exists(gm) {
 		os.WriteFile(gm, []byte("module tokensaver-data\n"), 0o644)
 	}
+	cfg = readConfig()
+	cfgStamp = configStamp()
+}
+
+var (
+	cfgMu    sync.Mutex
+	cfgStamp string
+)
+
+// readConfig is data\config.json with the defaults filled in.
+func readConfig() Config {
+	var c Config
 	if b, err := os.ReadFile(filepath.Join(appHome, "config.json")); err == nil {
-		json.Unmarshal(bytes.TrimPrefix(b, []byte("\xef\xbb\xbf")), &cfg)
+		json.Unmarshal(bytes.TrimPrefix(b, []byte("\xef\xbb\xbf")), &c)
 	}
-	if localMode && strings.TrimSpace(cfg.Approval) == "" {
-		cfg.Approval = "dangerous" // only deleting/uninstalling/system changes ask
+	if localMode && strings.TrimSpace(c.Approval) == "" {
+		c.Approval = "dangerous" // only deleting/uninstalling/system changes ask
 	}
-	if cfg.Workers <= 0 {
-		cfg.Workers = 4
+	if c.Workers <= 0 {
+		c.Workers = 4
 	}
-	if cfg.AIScript == "" && isWin {
-		cfg.AIScript = defaultAIScript
+	applyAIDefaults(&c)
+	return c
+}
+
+func configStamp() string {
+	fi, err := os.Stat(filepath.Join(appHome, "config.json"))
+	if err != nil {
+		return "none"
 	}
+	return fmt.Sprintf("%d/%d", fi.Size(), fi.ModTime().UnixNano())
+}
+
+// refreshConfig re-reads config.json when it changed since it was last read, so the long-running
+// mcp and serve processes pick up edits without a restart.
+func refreshConfig() {
+	cfgMu.Lock()
+	defer cfgMu.Unlock()
+	st := configStamp()
+	switch {
+	case cfgStamp == "": // not read from a file yet (tests set cfg directly): start watching from here
+		cfgStamp = st
+	case st != cfgStamp:
+		cfgStamp = st
+		if st != "none" { // only a real, changed file replaces the settings in use
+			cfg = readConfig()
+		}
+	}
+}
+
+// strayConfigNote warns about a config.json next to the program folder instead of in data\,
+// which TokenSaver never reads.
+func strayConfigNote() string {
+	stray := filepath.Join(filepath.Dir(appHome), "config.json")
+	if samePath(stray, filepath.Join(appHome, "config.json")) || !exists(stray) {
+		return ""
+	}
+	return "NOTE: " + stray + " is not read; TokenSaver's settings are in " + filepath.Join(appHome, "config.json") + " (move what you need there)."
 }
 
 func jobsDir() string  { return filepath.Join(appHome, "jobs") }

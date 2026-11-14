@@ -133,7 +133,7 @@ func modeOn(folder, logLine string) string {
 	}
 	autoYesLogf("%s", logLine)
 	autoYesOff() // restart so it picks up the project-mode limit
-	ay := autoYesOn()
+	ay := autoYesAutoOn()
 	return projectNote() + "\n" + ay + "\nA chat that was already open may need a new chat to read these instructions; until then, follow this message."
 }
 

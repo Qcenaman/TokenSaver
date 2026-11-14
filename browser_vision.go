@@ -40,6 +40,7 @@ type browserVisionArgs struct {
 	Pattern  string        `json:"pattern"`
 	Steps    []browserStep `json:"steps"`
 	Then     string        `json:"then"`
+	full     bool          // the call is from a full-output client (set from the marker)
 }
 
 var browserVisionActions = map[string]bool{"screenshot": true, "ocr": true, "console": true, "do": true}
@@ -50,6 +51,7 @@ func toolBrowserFull(raw json.RawMessage) (string, []toolImage, error) {
 	if err := json.Unmarshal(raw, &a); err != nil {
 		return "", nil, err
 	}
+	a.full = isFullCall(raw)
 	a.Action = strings.ToLower(strings.TrimSpace(a.Action))
 	if !browserVisionActions[a.Action] {
 		s, err := toolBrowser(raw)
@@ -71,11 +73,10 @@ func toolBrowserFull(raw json.RawMessage) (string, []toolImage, error) {
 		return "", nil, err
 	}
 	defer w.c.Close()
-	maxc := a.MaxChars
-	if maxc <= 0 {
-		maxc = 4000
+	maxc := outCap(isFullCall(raw), a.MaxChars, 4000, 30000)
+	if a.MaxPx <= 0 && isFullCall(raw) {
+		a.MaxPx = fullScreenshotPx
 	}
-	maxc = min(maxc, 30000)
 	switch a.Action {
 	case "screenshot":
 		return pageScreenshot(w, a)
@@ -260,6 +261,9 @@ func pageScreenshot(w *wsConn, a browserVisionArgs) (string, []toolImage, error)
 			return "", nil, err
 		}
 		return info + ans, nil, nil
+	}
+	if a.full { // Perplexity may not see tool images: add them in words
+		info += readableShot(buf.Bytes(), "browser "+label, gpuMode(a.GPU, a.Force))
 	}
 	return info, []toolImage{{data: buf.Bytes(), mime: "image/jpeg"}}, nil
 }

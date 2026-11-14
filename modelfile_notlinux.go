@@ -490,26 +490,37 @@ func writeGenScript(p, txt string) error {
 // models maps names to start scripts; with an unreadable models.json the built-ins stand
 // in so the rest of ContextSaver keeps working (switching is refused, see resolveModel).
 func models() map[string]string {
-	if set, err := loadModels(); err == nil {
-		return set.scripts
+	m, _ := modelsAndOrder()
+	return m
+}
+
+// modelsAndOrder: models.json (or the older config list, or the built-ins), with the ELAI hub's
+// models standing in for entries whose start script is gone.
+func modelsAndOrder() (map[string]string, []string) {
+	var scripts map[string]string
+	var order []string
+	set, err := loadModels()
+	switch {
+	case err == nil:
+		scripts, order = set.scripts, append([]string(nil), set.order...)
+	case len(cfg.Models) > 0:
+		scripts = cfg.Models
+	default:
+		scripts = defaultModels
 	}
-	if len(cfg.Models) > 0 {
-		return cfg.Models
+	if order == nil {
+		for n := range scripts {
+			order = append(order, n)
+		}
+		sort.Strings(order)
 	}
-	return defaultModels
+	return withHubModels(scripts, order, func(n string) bool { return set != nil && set.entries[n].GGUF != "" })
 }
 
 // modelNames lists the models in models.json order.
 func modelNames() []string {
-	if set, err := loadModels(); err == nil {
-		return append([]string(nil), set.order...)
-	}
-	var ns []string
-	for n := range models() {
-		ns = append(ns, n)
-	}
-	sort.Strings(ns)
-	return ns
+	_, order := modelsAndOrder()
+	return order
 }
 
 func firstScript() string {
@@ -524,6 +535,9 @@ func firstScript() string {
 
 // resolveModel gives the start script for name, or says plainly what is wrong.
 func resolveModel(name string) (string, error) {
+	if hub := hubScriptFor(name); hub != "" {
+		return hub, nil
+	}
 	if err := modelFileCheck(name); err != nil {
 		return "", err
 	}

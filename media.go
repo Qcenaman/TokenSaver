@@ -353,11 +353,7 @@ func toolMedia(raw json.RawMessage) (string, error) {
 	if _, err := exec.LookPath("ffmpeg"); err != nil {
 		return "", errors.New("ffmpeg isn't installed (" + installHint("ffmpeg") + ")")
 	}
-	maxc := a.MaxChars
-	if maxc <= 0 {
-		maxc = 6000
-	}
-	maxc = min(maxc, 30000)
+	maxc := outCap(isFullCall(raw), a.MaxChars, 6000, 30000)
 	switch strings.ToLower(a.Action) {
 	case "info", "":
 		return mediaInfo(p)

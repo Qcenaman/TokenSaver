@@ -291,6 +291,10 @@ func toolWindowFull(raw json.RawMessage) (string, []toolImage, error) {
 	if err := json.Unmarshal(raw, &a); err != nil {
 		return "", nil, err
 	}
+	full := isFullCall(raw)
+	if a.MaxPx <= 0 && full {
+		a.MaxPx = fullScreenshotPx
+	}
 	act := strings.ToLower(a.Action)
 	switch {
 	case act == "clipboard":
@@ -307,16 +311,15 @@ func toolWindowFull(raw json.RawMessage) (string, []toolImage, error) {
 		if !ok {
 			return "clipboard holds no text", nil, nil
 		}
-		maxc := a.MaxChars
-		if maxc <= 0 {
-			maxc = 4000
-		}
-		body, note := capText(t, min(maxc, 30000), "clipboard")
+		body, note := capText(t, outCap(full, a.MaxChars, 4000, 30000), "clipboard")
 		return body + note, nil, nil
 	case act == "screenshot":
 		s, img, err := screenshot(a.Window, a.X, a.Y, a.W, a.H, a.MaxPx, a.Question, gpuMode(a.GPU, a.Force))
 		if img == nil {
 			return s, nil, err
+		}
+		if full && a.Question == "" { // Perplexity may not see tool images: add them in words
+			s += readableShot(img, "screenshot", gpuMode(a.GPU, a.Force))
 		}
 		return s, []toolImage{{data: img, mime: "image/jpeg"}}, err
 	case act == "ocr" && a.Boxes:
@@ -352,11 +355,7 @@ func toolWindowFull(raw json.RawMessage) (string, []toolImage, error) {
 		if strings.TrimSpace(text) == "" {
 			return label + ": no text found", nil, nil
 		}
-		maxc := a.MaxChars
-		if maxc <= 0 {
-			maxc = 4000
-		}
-		body, note := capText(text, min(maxc, 30000), label)
+		body, note := capText(text, outCap(full, a.MaxChars, 4000, 30000), label)
 		return label + "\n" + body + note, nil, nil
 	}
 	s, err := toolWindow(raw)
@@ -430,10 +429,31 @@ func askAboutImage(jpg []byte, label, question, gpu string) (string, error) {
 	if err := os.WriteFile(p, jpg, 0o644); err != nil {
 		return "", err
 	}
-	args, _ := json.Marshal(map[string]any{"action": "ask", "paths": []string{p}, "question": question, "gpu": gpu})
+	args, _ := json.Marshal(map[string]any{"action": "ask", "paths": []string{p}, "question": question, "gpu": gpu, "wait_seconds": 50})
 	ans, err := toolLocalAI(args)
 	if err != nil {
 		return "", err
 	}
 	return " (answered by local AI from " + p + ")\n" + ans, nil
+}
+
+// readableShot is a screenshot in words for clients that cannot look at tool images: the text on
+// it (OCR) and a short description by the local AI. Either part is left out when it fails.
+func readableShot(jpg []byte, label, gpu string) string {
+	var b strings.Builder
+	if pg, err := ocrPageOf(jpg); err == nil {
+		if t := strings.TrimSpace(pg.text()); t != "" {
+			b.WriteString("\nText on it (OCR):\n" + clip(t, 8000))
+		}
+	}
+	ans, err := askAboutImage(jpg, label, "Describe this screenshot in a few sentences: what it shows, its layout, and any text, numbers or errors that matter.", gpu)
+	switch {
+	case err != nil:
+		b.WriteString("\n(no local AI description: " + clip(err.Error(), 300) + ")")
+	case strings.HasPrefix(strings.TrimSpace(ans), "REMINDER") || strings.Contains(ans, "GPU is in use"):
+		b.WriteString("\n" + strings.TrimSpace(ans))
+	default:
+		b.WriteString("\nDescription" + ans)
+	}
+	return b.String()
 }

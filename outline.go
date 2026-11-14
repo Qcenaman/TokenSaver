@@ -34,6 +34,7 @@ func toolOutline(raw json.RawMessage) (string, error) {
 		Path     string `json:"path"`
 		Name     string `json:"name"`
 		MaxChars int    `json:"max_chars"`
+		Full     bool   `json:"_full_output"`
 	}
 	if err := json.Unmarshal(raw, &a); err != nil {
 		return "", fmt.Errorf("bad arguments: %v", err)
@@ -95,6 +96,9 @@ func toolOutline(raw json.RawMessage) (string, error) {
 	limit := a.MaxChars
 	if limit <= 0 {
 		limit = 8000
+		if a.Full {
+			limit = fullOutputMaxChars()
+		}
 	}
 	if len([]rune(out)) > limit {
 		out = clip(out, limit) + fmt.Sprintf("\n… cut at %d chars: pass name to filter, or a sub folder", limit)

@@ -23,6 +23,7 @@ type scanArgs struct {
 	Recursive *bool  `json:"recursive"`
 	Include   string `json:"include"`
 	Exclude   string `json:"exclude"`
+	Full      bool   `json:"_full_output"`
 }
 
 type agg struct {
@@ -58,6 +59,11 @@ func toolScan(raw json.RawMessage) (string, error) {
 	var files, dirs, total, denied, directN int64
 	var direct []string
 	var largest []entry
+	// list sizes: short by default, everything for full-output clients
+	nTypes, nLargest, nSub, nDirect := 10, 5, 12, 8
+	if a.Full {
+		nTypes, nLargest, nSub, nDirect = 1<<20, 50, 1<<20, 5000
+	}
 	var oldest, newest time.Time
 	deadline := time.Now().Add(25 * time.Second)
 	partial := false
@@ -119,7 +125,7 @@ func toolScan(raw json.RawMessage) (string, error) {
 			top[parts[0]].size += fi.Size()
 		} else {
 			directN++
-			if len(direct) < 8 {
+			if len(direct) < nDirect {
 				direct = append(direct, name)
 			}
 		}
@@ -130,11 +136,11 @@ func toolScan(raw json.RawMessage) (string, error) {
 		if mt.After(newest) {
 			newest = mt
 		}
-		if len(largest) < 5 || fi.Size() > largest[len(largest)-1].info.Size() {
+		if len(largest) < nLargest || fi.Size() > largest[len(largest)-1].info.Size() {
 			largest = append(largest, entry{rel: rel, info: fi})
 			sort.Slice(largest, func(x, y int) bool { return largest[x].info.Size() > largest[y].info.Size() })
-			if len(largest) > 5 {
-				largest = largest[:5]
+			if len(largest) > nLargest {
+				largest = largest[:nLargest]
 			}
 		}
 		return nil
@@ -149,7 +155,7 @@ func toolScan(raw json.RawMessage) (string, error) {
 		b.WriteString(" — stopped after 25s, numbers are partial")
 	}
 	if files > 0 {
-		b.WriteString("\nTypes: " + topAgg(byExt, 10, func(k string, a *agg) string {
+		b.WriteString("\nTypes: " + topAgg(byExt, nTypes, func(k string, a *agg) string {
 			return fmt.Sprintf("%s %s (%s)", k, hc(a.n), hb(a.size))
 		}))
 		fmt.Fprintf(&b, "\nModified: %s → %s", oldest.Format("2006-01-02"), newest.Format("2006-01-02"))
@@ -160,7 +166,7 @@ func toolScan(raw json.RawMessage) (string, error) {
 		b.WriteString("\nLargest: " + strings.Join(ls, " · "))
 	}
 	if len(top) > 0 {
-		b.WriteString("\nSubfolders: " + topAgg(top, 12, func(k string, a *agg) string {
+		b.WriteString("\nSubfolders: " + topAgg(top, nSub, func(k string, a *agg) string {
 			return fmt.Sprintf("%s (%s files, %s)", k, hc(a.n), hb(a.size))
 		}))
 	}
@@ -224,6 +230,7 @@ type findArgs struct {
 	Limit         int     `json:"limit"`
 	All           bool    `json:"all"`
 	Lines         int     `json:"lines"`
+	Full          bool    `json:"_full_output"`
 }
 
 func toolFind(raw json.RawMessage) (string, error) {
@@ -274,16 +281,8 @@ func toolFind(raw json.RawMessage) (string, error) {
 			lineMatch = func(l string) bool { return strings.Contains(strings.ToLower(l), want) }
 		}
 	}
-	limit := a.Limit
-	if limit <= 0 {
-		limit = 50
-	}
-	limit = min(limit, 500)
-	perFile := a.Lines
-	if perFile <= 0 {
-		perFile = 3
-	}
-	perFile = min(perFile, 50)
+	limit := countCap(a.Full, a.Limit, 50, 500)
+	perFile := countCap(a.Full, a.Lines, 3, 50)
 	deadline := time.Now().Add(40 * time.Second)
 	var roots []string
 	for _, raw := range a.Path {
@@ -469,6 +468,7 @@ type readArgs struct {
 	Pages    string   `json:"pages"`
 	MaxPx    int      `json:"max_px"`
 	Changes  bool     `json:"changes"`
+	Full     bool     `json:"_full_output"` // set by the server for full-output clients
 }
 
 func toolRead(raw json.RawMessage) (string, []toolImage, error) {
@@ -506,6 +506,9 @@ func readImage(a readArgs) (string, []toolImage, error) {
 	maxPx := a.MaxPx
 	if maxPx <= 0 {
 		maxPx = 800
+		if a.Full {
+			maxPx = fullScreenshotPx
+		}
 	}
 	maxPx = min(max(maxPx, 64), 1568)
 	var pv *preview
@@ -552,18 +555,18 @@ func readText(a readArgs) (string, error) {
 	if fi.IsDir() {
 		return "", errors.New("that's a folder; use scan")
 	}
-	maxc := a.MaxChars
-	if maxc <= 0 {
-		maxc = 6000
-	}
-	maxc = min(maxc, 30000)
-	n := a.Lines
-	if n <= 0 {
-		n = 40
-	}
+	maxc := outCap(a.Full, a.MaxChars, 6000, 30000)
+	n := countCap(a.Full, a.Lines, 40, 1<<30)
 	mode := strings.ToLower(a.Mode)
 	if mode == "" {
 		mode = "head"
+		if a.Full { // the whole file
+			mode = "text"
+		}
+	}
+	lineCap := 500
+	if a.Full {
+		lineCap = 20000
 	}
 	ext := strings.ToLower(filepath.Ext(p))
 	pageSet, err := parsePages(a.Pages)
@@ -632,8 +635,12 @@ func readText(a readArgs) (string, error) {
 		if pageOf != nil {
 			num += fmt.Sprintf(" (p%d)", pageOf[i])
 		}
-		s := num + ": " + clip(lines[i], 500) + "\n"
+		s := num + ": " + clip(lines[i], lineCap) + "\n"
 		if b.Len()+len(s) > maxc {
+			if a.Full {
+				fmt.Fprintf(&b, "[output cut at %d characters at line %d of %d; read mode lines from_line %d for the rest of %s]\n", maxc, i+1, total, i+1, p)
+				return false
+			}
 			b.WriteString("[output cut at max_chars]\n")
 			return false
 		}

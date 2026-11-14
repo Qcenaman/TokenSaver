@@ -145,7 +145,10 @@ func useModel(name string, waitSecs int, force bool) (string, error) {
 		return "", err
 	}
 	if !exists(s) {
-		return "", errors.New("script not found: " + s)
+		return "", errors.New("start script not found: " + s + "; fix it in models.json, or set ai_script in data\\config.json")
+	}
+	if isHubScript(s) { // one router serves every model by name: load it there, no restart
+		return hubUse(name, s, waitSecs)
 	}
 	host, port := scriptAddr(s)
 	al := scriptAlias(s)
@@ -310,6 +313,15 @@ func setAIScript(s string) {
 	saveConfig()
 }
 
+// setAIModel makes name the model local_ai asks (a hub serves several by name).
+func setAIModel(name string) {
+	if strings.EqualFold(cfg.AIModel, name) {
+		return
+	}
+	cfg.AIModel = name
+	saveConfig()
+}
+
 func saveConfig() {
 	p := filepath.Join(appHome, "config.json")
 	m := map[string]any{}
@@ -317,6 +329,9 @@ func saveConfig() {
 		json.Unmarshal(b, &m)
 	}
 	m["ai_script"] = cfg.AIScript
+	if cfg.AIModel != "" {
+		m["ai_model"] = cfg.AIModel
+	}
 	delete(m, "ai_endpoint")
 	if len(cfg.Models) > 0 {
 		m["models"] = cfg.Models

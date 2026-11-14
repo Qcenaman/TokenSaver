@@ -11,13 +11,18 @@ import (
 	"io"
 	"strings"
 	"sync"
+	"sync/atomic"
 )
 
 type rpcReq struct {
 	ID     json.RawMessage `json:"id,omitempty"`
 	Method string          `json:"method"`
 	Params json.RawMessage `json:"params,omitempty"`
+	full   bool            // the client gets whole outputs (full_output_clients)
 }
+
+// stdioFull: the stdio client's initialize named a full-output client.
+var stdioFull atomic.Bool
 
 const serverInstructions = `TokenSaver works on this Windows PC and returns short results, so use it instead of built-in file, web-fetch, browser or computer-use tools whenever it can do the job. scan/find to look around; read for just the part you need (Office, PDF, and images or scans via OCR; image mode for a small picture); run_job for file operations on any number of files; run for commands (exit code and error lines only), not for writing files: to create or edit files use run_job write/edit steps, one step per file, and do not put file contents in a command; system for PC state; web for search and page facts; browser for JavaScript or signed-in pages; media for audio/video as text; office to create, edit, read or convert Word, Excel, PowerPoint and PDF files; rag to search the user's files by meaning and keep or recall memory notes across chats; window to read on-screen text and click, type, scroll or use the clipboard instead of screenshots; phone for the user's Android phone (its own engine: files, shell, screen as text, apps, notifications); local_ai to have the PC's own model read, describe or sort many files and images; project to turn on project mode (one folder) or full auto mode (mode all) when the user asks, so they are not asked for a yes at every step. Dry-run deletes, renames and overwrites. check action:new starts a project (Android with its Gradle wrapper). For building, testing and pushing an app, call check action:build_app once instead of separate steps. To look at any GitHub repo's code, pass owner/name as the path to find/read/check/outline/git compare; don't clone it yourself.`
 
@@ -65,6 +70,7 @@ func serveMCP(in io.Reader, out io.Writer) {
 		if len(req.ID) == 0 || string(req.ID) == "null" {
 			continue
 		}
+		req.full = stdioFull.Load()
 		wg.Add(1)
 		go func(req rpcReq) {
 			defer wg.Done()
@@ -91,6 +97,10 @@ func handleRPC(req rpcReq) map[string]any {
 		if localMode {
 			noteClient(p.ClientInfo.Name, p.ClientInfo.Version)
 		}
+		if isFullOutputClient(p.ClientInfo.Name) {
+			stdioFull.Store(true)
+			req.full = true
+		}
 		v := p.ProtocolVersion
 		if v == "" {
 			v = "2025-06-18"
@@ -101,13 +111,20 @@ func handleRPC(req rpcReq) map[string]any {
 			"serverInfo":      map[string]any{"name": appName(), "version": appVersion},
 			"instructions":    instructions(),
 		}
+		if req.full {
+			resp["result"].(map[string]any)["instructions"] = fullOutputText(instructions())
+		}
 	case "ping":
 		resp["result"] = map[string]any{}
 	case "tools/list":
 		if localMode {
 			resp["result"] = map[string]any{"tools": []json.RawMessage{compactTool}}
 		} else {
-			resp["result"] = map[string]any{"tools": platformToolDefs()}
+			defs := platformToolDefs()
+			if req.full {
+				defs = fullOutputToolDefs(defs)
+			}
+			resp["result"] = map[string]any{"tools": defs}
 		}
 	case "tools/call":
 		var p struct {
@@ -123,6 +140,9 @@ func handleRPC(req rpcReq) map[string]any {
 		}
 		if len(p.Arguments) == 0 || string(p.Arguments) == "null" {
 			p.Arguments = json.RawMessage("{}")
+		}
+		if req.full && !isFullCall(p.Arguments) {
+			p.Arguments = markFullOutput(p.Arguments)
 		}
 		var text string
 		var imgs []toolImage
@@ -164,6 +184,7 @@ func callTool(name string, args json.RawMessage) (out string, imgs []toolImage, 
 			err = fmt.Errorf("internal error: %v", r)
 		}
 	}()
+	refreshConfig()
 	var fixOut func(string) string
 	switch name {
 	case "scan", "find", "read", "outline":
@@ -195,6 +216,13 @@ func callTool(name string, args json.RawMessage) (out string, imgs []toolImage, 
 		out, err = toolSaved(args)
 	case "local_ai":
 		out, err = toolLocalAI(args)
+		if n := strayConfigNote(); n != "" {
+			if err != nil {
+				err = fmt.Errorf("%v\n%s", err, n)
+			} else {
+				out = n + "\n" + out
+			}
+		}
 	case "run":
 		out, err = toolRun(args)
 	case "system":
@@ -302,7 +330,7 @@ func toolRunJob(raw json.RawMessage) (string, error) {
 	j.start()
 	waitJob(j, waitSecs(a.Wait, 15, 50))
 	s := j.snapshot()
-	return withNotify(formatState(&s), &s, a.Notify), nil
+	return withNotify(formatStateOpt(&s, isFullCall(raw)), &s, a.Notify), nil
 }
 
 func toolJob(raw json.RawMessage) (string, error) {
@@ -318,7 +346,7 @@ func toolJob(raw json.RawMessage) (string, error) {
 	}
 	switch strings.ToLower(a.Action) {
 	case "list":
-		return listJobs(15), nil
+		return listJobs(countCap(isFullCall(raw), 0, 15, 15)), nil
 	case "cancel":
 		switch strings.ToLower(strings.TrimSpace(a.ID)) {
 		case "local_ai", "ai-server", "ai_server", "llama":
@@ -367,7 +395,7 @@ func toolJob(raw json.RawMessage) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		return formatState(s), nil
+		return formatStateOpt(s, isFullCall(raw)), nil
 	}
 	return "", errors.New("action must be status, list, cancel, undo or notify")
 }

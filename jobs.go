@@ -549,9 +549,13 @@ func progressLine(s *JobState) string {
 	return strings.Join(parts, " · ")
 }
 
-func formatState(s *JobState) string {
+func formatState(s *JobState) string { return formatStateOpt(s, false) }
+
+// formatStateOpt: full (full-output clients) puts a command's whole output in, instead of its
+// error lines and tail, unless the call asked for a tail itself.
+func formatStateOpt(s *JobState, full bool) string {
 	if s.Kind == "run" {
-		return formatRun(s)
+		return formatRunOpt(s, full)
 	}
 	var b strings.Builder
 	title := s.ID

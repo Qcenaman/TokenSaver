@@ -21,6 +21,7 @@ import (
 // Edits keep a copy of the old file in TokenSaver's backups folder.
 
 type officeArgs struct {
+	Full         bool               `json:"_full_output"` // set by the server for full-output clients
 	Action       string             `json:"action"`
 	Path         string             `json:"path"`
 	To           string             `json:"to"`
@@ -228,6 +229,9 @@ func officeRead(p string, a officeArgs) (string, error) {
 	maxc := a.MaxChars
 	if maxc <= 0 {
 		maxc = 8000
+		if a.Full {
+			maxc = fullOutputMaxChars()
+		}
 	}
 	var s string
 	var err error

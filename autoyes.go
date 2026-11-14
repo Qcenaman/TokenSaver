@@ -30,6 +30,9 @@ type autoYesState struct {
 	Beat    time.Time `json:"beat,omitempty"`
 	Replies int       `json:"replies"`
 	Why     string    `json:"stopped_because,omitempty"`
+	// UserOff: the user switched it off. It stays off through restarts, updates and project
+	// or full auto mode until the user switches it on again.
+	UserOff bool `json:"user_off,omitempty"`
 }
 
 func autoYesPath() string { return filepath.Join(appHome, "autoyes.json") }
@@ -278,6 +281,9 @@ func (a *ayWatcher) visitWaiting(w winInfo, th ayItem) {
 // autoYesRun is the watcher (`tokensaver autoyes run`); it runs in the user's session and
 // watches every Perplexity window.
 func autoYesRun() int {
+	if loadAutoYes().UserOff { // nothing but the user's own "on" brings it back
+		return 0
+	}
 	if len(ayWindows()) == 0 {
 		writeJSONAtomic(autoYesPath(), autoYesState{Why: "the Perplexity window is not open"})
 		return 1
@@ -358,11 +364,47 @@ func autoYesOn() string {
 	return autoYesStatus()
 }
 
+// autoYesOff stops the watcher for a restart or with project mode; the user's own "off" is
+// autoYesUserOff, which also keeps it from coming back by itself.
 func autoYesOff() string {
 	st := loadAutoYes()
 	st.On, st.Why = false, "switched off"
 	writeJSONAtomic(autoYesPath(), st)
 	return autoYesStatus()
+}
+
+func autoYesUserOff() string {
+	st := loadAutoYes()
+	st.On, st.Why, st.UserOff = false, "switched off by you; it stays off until you switch it on", true
+	writeJSONAtomic(autoYesPath(), st)
+	return autoYesStatus()
+}
+
+// autoYesUserOn is the user's own "on": it clears a sticky off.
+func autoYesUserOn() string {
+	if st := loadAutoYes(); st.UserOff {
+		st.UserOff, st.Why = false, ""
+		writeJSONAtomic(autoYesPath(), st)
+	}
+	return autoYesOn()
+}
+
+// autoYesAutoOn starts it for project / full auto mode, unless the user switched it off.
+func autoYesAutoOn() string {
+	if loadAutoYes().UserOff {
+		return "auto-yes: stays off because you switched it off (window action auto_yes text on starts it again)."
+	}
+	return autoYesOn()
+}
+
+// autoYesRestart restarts a running watcher (after an update) and leaves a stopped one stopped.
+func autoYesRestart() string {
+	if st := loadAutoYes(); !st.alive() || st.UserOff {
+		return autoYesStatus()
+	}
+	autoYesOff()
+	time.Sleep(4 * time.Second)
+	return autoYesOn()
 }
 
 func autoYesStatus() string {
@@ -381,9 +423,11 @@ func autoYesStatus() string {
 func autoYesSwitch(mode string) string {
 	switch strings.ToLower(strings.TrimSpace(mode)) {
 	case "on", "start":
-		return autoYesOn()
+		return autoYesUserOn()
 	case "off", "stop":
-		return autoYesOff()
+		return autoYesUserOff()
+	case "restart":
+		return autoYesRestart()
 	}
 	return autoYesStatus()
 }
