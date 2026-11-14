@@ -10,6 +10,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -143,7 +144,10 @@ func confirmQuestionIn(text string, anyQuestion bool) (question, around, key str
 // autoYesSend clicks Perplexity's "Ask a follow-up" box in window win (a handle), types yes like a
 // person (its editor ignores a value set through UI Automation) and presses Enter. A step that
 // fails comes back as an error, so a reply that never landed is not logged as answered.
-func autoYesSend(win string) error {
+func autoYesSend(win, text string) error {
+	if text = ayCleanReply(text); text == "" {
+		text = "yes"
+	}
 	do := func(steps []map[string]any) error {
 		out, err := toolWindow(jsonRaw(map[string]any{"action": "do", "window": win, "steps": steps}))
 		if err == nil && strings.Contains(out, "failed:") {
@@ -152,7 +156,7 @@ func autoYesSend(win string) error {
 		return err
 	}
 	// ctrl+a first, so yes replaces whatever the box holds instead of landing inside it
-	typed := []map[string]any{{"wait": 0.3}, {"press": "ctrl+a"}, {"type": "yes"}, {"wait": 0.3}, {"press": "enter"}}
+	typed := []map[string]any{{"wait": 0.3}, {"press": "ctrl+a"}, {"type": text}, {"wait": 0.3}, {"press": "enter"}}
 	err := do(append([]map[string]any{{"click": "Ask a follow-up"}}, typed...))
 	if err != nil { // no box by that name: click the text on screen instead
 		err = do(append([]map[string]any{{"click_text": "Ask a follow-up"}}, typed...))
@@ -163,6 +167,9 @@ func autoYesSend(win string) error {
 // ayPending is the go-ahead one window is waiting on.
 type ayPending struct {
 	question, around, key string
+	// the newest finished answer as a whole, for the local AI (Windows' structured read only)
+	lines         []string
+	query, ansKey string
 }
 
 // ayRead returns what window w waits on (key empty: nothing), plus sidebar threads marked as waiting.
@@ -187,6 +194,7 @@ func ayRead(w winInfo) (p ayPending, waiting []ayItem, err error) {
 	}
 	if t, ok := ayNewestAnswer(*chat); ok {
 		p.question, p.around, p.key = ayAnswerQuestion(t, anyQ)
+		p.lines, p.query, p.ansKey = t.lines, t.query, ayHash(t.lines)
 	}
 	return p, waiting, nil
 }
@@ -200,7 +208,7 @@ func autoYesLanded(w winInfo, key string) bool {
 		if err != nil {
 			continue
 		}
-		if p.key != key {
+		if p.key != key && p.ansKey != key {
 			return true
 		}
 	}
@@ -213,13 +221,17 @@ type ayWatcher struct {
 	answered map[string]time.Time // key → when answered; never answered twice
 	seen     map[uintptr]string   // window → key read last round (a finished message reads the same twice)
 	fails    map[string]int
-	send     func(win string) error            // autoYesSend; tests swap it
+	send     func(win, text string) error     // autoYesSend; tests swap it
 	landed   func(w winInfo, key string) bool // autoYesLanded; tests swap it
+	// the local AI as judge (ayJudgeLocal; tests swap it), messages it already read, and when it last failed
+	judgeFn func(lines []string, query, mode string) (ayVerdict, error)
+	judged  map[string]bool
+	aiDown  time.Time
 }
 
 func newAyWatcher(st *autoYesState) *ayWatcher {
 	return &ayWatcher{st: st, answered: map[string]time.Time{}, seen: map[uintptr]string{}, fails: map[string]int{},
-		send: autoYesSend, landed: autoYesLanded}
+		send: autoYesSend, landed: autoYesLanded, judgeFn: ayJudgeLocal, judged: map[string]bool{}}
 }
 
 // answer handles one pending go-ahead in window w; true when a yes went out and landed.
@@ -243,7 +255,7 @@ func (a *ayWatcher) answer(w winInfo, p ayPending, stable bool) bool {
 		}
 		autoYesLogf("project mode: delete/overwrite inside %s", activeProject())
 	}
-	if err := a.send(fmt.Sprint(w.hwnd)); err != nil {
+	if err := a.send(fmt.Sprint(w.hwnd), "yes"); err != nil {
 		a.answered[p.key] = time.Now()
 		autoYesLogf("could not answer (%v): %s", err, p.question)
 		return false
@@ -263,6 +275,17 @@ func (a *ayWatcher) answer(w winInfo, p ayPending, stable bool) bool {
 	return true
 }
 
+// handle: the local AI judges the newest message when it can; otherwise the phrase rules.
+func (a *ayWatcher) handle(w winInfo, p ayPending, stable bool) {
+	if p.ansKey != "" && a.judgeFn != nil && ayAIEnabled() && a.judge(w, p, stable) {
+		return
+	}
+	a.answer(w, p, stable)
+}
+
+// ayAIEnabled: auto_yes_ai in config.json (default on).
+func ayAIEnabled() bool { return cfg.AutoYesAI == nil || *cfg.AutoYesAI }
+
 // visitWaiting opens a background chat the sidebar marks as waiting, answers it if it asks for a
 // go-ahead, and goes back to the chat that was showing.
 func (a *ayWatcher) visitWaiting(w winInfo, th ayItem) {
@@ -273,7 +296,7 @@ func (a *ayWatcher) visitWaiting(w winInfo, th ayItem) {
 	}
 	autoYesLogf("opened a waiting chat in the background: %s", clip(th.name, 80))
 	if p, _, err := ayRead(w); err == nil {
-		a.answer(w, p, true)
+		a.handle(w, p, true)
 	}
 	toolWindow(jsonRaw(map[string]any{"action": "do", "window": fmt.Sprint(w.hwnd), "steps": []map[string]any{{"click": "Back"}, {"wait": 1}}}))
 }
@@ -300,8 +323,12 @@ func autoYesRun() int {
 	a := newAyWatcher(&st)
 	// what is already on screen when it switches on was asked before: not answered
 	for _, w := range ayWindows() {
-		if p, _, err := ayRead(w); err == nil && p.key != "" {
-			a.answered[p.key] = time.Now()
+		if p, _, err := ayRead(w); err == nil {
+			for _, k := range []string{p.key, p.ansKey} {
+				if k != "" {
+					a.answered[k] = time.Now()
+				}
+			}
 		}
 	}
 	visited := map[string]time.Time{}
@@ -330,7 +357,7 @@ func autoYesRun() int {
 			if err != nil {
 				continue
 			}
-			a.answer(w, p, false)
+			a.handle(w, p, false)
 			for _, th := range waiting { // a second chat waiting behind the one on screen
 				if p.key != "" && a.answered[p.key].IsZero() {
 					break // this window's own question first
@@ -440,6 +467,26 @@ func autoYesCLI(args []string) int {
 	}
 	if mode == "run" {
 		return autoYesRun()
+	}
+	if mode == "judge" { // tokensaver autoyes judge [normal|project|full] < message.txt: what the local AI makes of it
+		m := "normal"
+		if len(args) > 1 {
+			m = args[1]
+		}
+		b, _ := io.ReadAll(io.LimitReader(os.Stdin, 1<<20))
+		start := time.Now()
+		v, err := ayJudgeLocal(strings.Split(strings.TrimSpace(string(b)), "\n"), "", m)
+		if err != nil {
+			fmt.Println("local AI:", err)
+			return 1
+		}
+		out, err := json.Marshal(v)
+		if err != nil {
+			fmt.Println(err)
+			return 1
+		}
+		fmt.Printf("%s (%.1f s)\n", out, time.Since(start).Seconds())
+		return 0
 	}
 	fmt.Println(autoYesSwitch(mode))
 	return 0

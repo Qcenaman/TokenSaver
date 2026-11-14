@@ -130,7 +130,7 @@ func TestAutoYesAnswersOnce(t *testing.T) {
 	st := &autoYesState{On: true}
 	a := newAyWatcher(st)
 	sent := 0
-	a.send = func(string) error { sent++; return nil }
+	a.send = func(string, string) error { sent++; return nil }
 	a.landed = func(winInfo, string) bool { return true }
 	w := winInfo{hwnd: 7}
 	p := ayPending{question: "Open PixelFox index.html in the TokenSaver Chrome browser for a smoke test?", around: "Open PixelFox index.html ...?", key: "k1"}
@@ -156,7 +156,7 @@ func TestAutoYesAnswersOnce(t *testing.T) {
 	if sent != 4 {
 		t.Error("answered a question about deleting")
 	}
-	a.send = func(string) error { return errors.New("no box") }
+	a.send = func(string, string) error { return errors.New("no box") }
 	if a.answer(w, ayPending{question: "Run it?", around: "Run it?", key: "k4"}, true) {
 		t.Error("a failed send counted as answered")
 	}

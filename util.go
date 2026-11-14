@@ -60,6 +60,7 @@ type Config struct {
 	// matched case-insensitive as a substring of clientInfo.name or the User-Agent)
 	FullOutputClients  []string `json:"full_output_clients,omitempty"`
 	FullOutputMaxChars int      `json:"full_output_max_chars,omitempty"` // ceiling per result for those clients (default 400000)
+	AutoYesAI          *bool    `json:"auto_yes_ai,omitempty"`           // auto-yes asks the local AI what Perplexity wants (default true)
 }
 
 var (

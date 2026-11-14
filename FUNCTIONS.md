@@ -1,6 +1,6 @@
 # TokenSaver functions
 
-**Version 2.11.1**
+**Version 2.12.0**
 
 Windows PC helper that Claude hands work to, so the steps run on the PC instead of costing tokens in the chat. Runs as an MCP server in Claude desktop. Everything it keeps is in `D:\Claude Apps\TokenSaver`.
 
@@ -34,6 +34,9 @@ Windows PC helper that Claude hands work to, so the steps run on the PC instead 
 Also: GitHub repos as paths (owner/name[@ref][/sub] in find, read, scan, check, outline and git) read from a temporary copy TokenSaver keeps on the PC, updated as needed and removed after a day unused, so Claude never clones repos itself; tells Claude desktop to prefer TokenSaver over its built-in tools, undo for file jobs, job-end signals through GitHub (no polling), protected system folders; the terminal also reconnects Claude desktop and installs or removes the admin helper.
 
 ## What's new
+### 2.12.0
+- auto-yes reads each finished Perplexity message with the local AI (Qwen coder) and replies properly: yes to a go-ahead, the recommended option to a choice, "You decide…" to a question in project / full auto mode; real questions and risky steps outside those modes are left for you; the phrase rules take over when the local AI can't run
+- tokensaver autoyes judge shows what the local AI makes of a message
 ### 2.11.1
 - fix: the TV, tablet and other devices that hold this PC's link no longer overwrite the phone's addresses when they report in, so the PC stops sending the phone's token to the TV ("the phone rejected the token"); they are kept in devices.json and listed in phone status
 ### 2.11.0
