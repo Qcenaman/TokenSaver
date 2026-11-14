@@ -480,10 +480,14 @@ func fixArgs(tool string, a map[string]any) {
 			a["max_chars"] = maxOut()
 		}
 	case "window", "browser":
-		if tool == "window" && strings.EqualFold(str(a, "action"), "screenshot") && a["question"] == nil && !localVision() {
-			// the loaded model can't see pictures: give it the window's text instead
-			a["action"] = "text"
-			a["_note"] = "(the loaded model can't read images, so here is the window's text)\n"
+		if strings.EqualFold(str(a, "action"), "screenshot") && a["question"] == nil && !localVision() {
+			// the loaded model can't see pictures: give it the text instead (as drawn, for the browser)
+			if tool == "window" {
+				a["action"] = "text"
+			} else {
+				a["action"] = "ocr"
+			}
+			a["_note"] = "(the loaded model can't read images, so here is the " + tool + "'s text)\n"
 		}
 		if _, ok := a["max_chars"]; !ok {
 			a["max_chars"] = maxOut()
@@ -770,7 +774,7 @@ var shortHelp = map[string]string{
 	"files":   "files{steps:[{op,from[],to}],dry_run}: ops copy move sync delete(Trash) rename{rules:[{replace,with,template,prefix,suffix,case,ext}]} mkdir download extract edit{edits:[{find,replace}]} write{content}; per step: include exclude recursive newer_than min_size conflict:keep_both|skip|newer|overwrite.",
 	"job":     "job{action:status|list|log|cancel|undo,id,wait_seconds}: log = new output since the last log (dev servers); cancel stops the whole process tree.",
 	"saved":   "saved{action:list|show|save|remove,name,steps}",
-	"browser": "browser{action:open|text|find|links|click|fill|press|wait|console|close,url,target,value,pattern,show}: real Chrome, text only; localhost:PORT works; console = page errors since the last call.",
+	"browser": "browser{action:open|text|find|links|click|fill|press|wait|close|screenshot|ocr|console|do,url,target,value,pattern,show,steps,then,changes}: real Chrome; localhost:PORT and file paths work; text is page text only: for canvas/games use ocr, screenshot, console (messages+errors since open) and do steps like window (click_at [x,y], hold keys secs, press Space, wait) with then:ocr.",
 	"window":  "window{action,window:title|program|pid}: list{filter} text ocr{x,y,w,h,boxes} copy wait{pattern} clipboard{text} screenshot{question}\ndo{steps:[{click:name}{type,into}{press}{wait}{click_text,nth}{click_at:[x,y]}{move:[x,y]}{drag:[x1,y1,x2,y2]}{scroll:n}{hold,secs}],button,then:\"text\"}",
 	"media":   "media{action:info|transcript|frames,path,language,timestamps}: audio/video as text.",
 	"git":     "git{action:status|diff|log|compare|commit|push|pull|clone|login|ci,path,to,message,paths[],full,ref,n,url,pair,wait_seconds}: never as admin; path may be owner/name[@ref] (read-only GitHub copy; pull on it updates it); compare = path vs to (folders or owner/name[@ref]): only-in, changed by lines, same; pair:true pairs x_windows.go/x_linux.go; paths[]+full:true = changed lines; clone without to = temp copy, an existing clone is updated; login = GitHub sign-in (gives a code for the user); ci = latest GitHub Actions run, failing lines only.",

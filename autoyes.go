@@ -125,28 +125,24 @@ func confirmQuestionIn(text string, anyQuestion bool) (question, around, key str
 			}
 		}
 	}
-	if question == "" { // a yes asked for anywhere in the message, not only at its end
-		if m := ayYes.FindAllString(msg, -1); len(m) > 0 {
+	if question == "" { // a yes asked for in the closing part of the message
+		if m := ayYes.FindAllString(tail, -1); len(m) > 0 {
 			question = strings.TrimSpace(m[len(m)-1])
 		}
 	}
-	if question == "" {
+	if question == "" || ayOwnReply(question) {
 		return "", "", ""
 	}
 	sum := sha256.Sum256([]byte(msg))
 	return question, tail, hex.EncodeToString(sum[:8])
 }
 
-func autoYesWindowText() (string, error) {
-	return toolWindow(jsonRaw(map[string]any{"action": "text", "window": autoYesWindow, "max_chars": 400000}))
-}
-
-// autoYesSend clicks Perplexity's "Ask a follow-up" box, types yes like a person (its editor
-// ignores a value set through UI Automation) and presses Enter. A step that fails comes back
-// as an error, so a reply that never landed is not logged as answered.
-func autoYesSend() error {
+// autoYesSend clicks Perplexity's "Ask a follow-up" box in window win (a handle), types yes like a
+// person (its editor ignores a value set through UI Automation) and presses Enter. A step that
+// fails comes back as an error, so a reply that never landed is not logged as answered.
+func autoYesSend(win string) error {
 	do := func(steps []map[string]any) error {
-		out, err := toolWindow(jsonRaw(map[string]any{"action": "do", "window": autoYesWindow, "steps": steps}))
+		out, err := toolWindow(jsonRaw(map[string]any{"action": "do", "window": win, "steps": steps}))
 		if err == nil && strings.Contains(out, "failed:") {
 			err = fmt.Errorf("%s", strings.TrimSpace(out))
 		}
@@ -161,25 +157,128 @@ func autoYesSend() error {
 	return err
 }
 
+// ayPending is the go-ahead one window is waiting on.
+type ayPending struct {
+	question, around, key string
+}
+
+// ayRead returns what window w waits on (key empty: nothing), plus sidebar threads marked as waiting.
+func ayRead(w winInfo) (p ayPending, waiting []ayItem, err error) {
+	anyQ := activeProject() != ""
+	if !isWin { // no accessibility documents here: the window's text, the old way
+		text, err := toolWindow(jsonRaw(map[string]any{"action": "text", "window": fmt.Sprint(w.hwnd), "max_chars": 400000}))
+		if err != nil {
+			return p, nil, err
+		}
+		p.question, p.around, p.key = confirmQuestionIn(text, anyQ)
+		return p, nil, nil
+	}
+	docs, err := ayReadWindow(w)
+	if err != nil {
+		return p, nil, err
+	}
+	chat, side := ayChatDoc(docs)
+	waiting = ayWaitingThreads(side)
+	if chat == nil {
+		return p, waiting, nil
+	}
+	if t, ok := ayNewestAnswer(*chat); ok {
+		p.question, p.around, p.key = ayAnswerQuestion(t, anyQ)
+	}
+	return p, waiting, nil
+}
+
 // autoYesLanded tells whether the message answered (key) is no longer waiting: the reply was
 // sent, so Perplexity is answering or a newer query stands after it.
-func autoYesLanded(key string) bool {
+func autoYesLanded(w winInfo, key string) bool {
 	for i := 0; i < 4; i++ {
 		time.Sleep(time.Second)
-		text, err := autoYesWindowText()
+		p, _, err := ayRead(w)
 		if err != nil {
 			continue
 		}
-		if _, _, k := confirmQuestion(text); k != key {
+		if p.key != key {
 			return true
 		}
 	}
 	return false
 }
 
-// autoYesRun is the watcher (`tokensaver autoyes run`); it runs in the user's session.
+// ayWatcher keeps what auto-yes has answered, so each question gets one yes only.
+type ayWatcher struct {
+	st       *autoYesState
+	answered map[string]time.Time // key → when answered; never answered twice
+	seen     map[uintptr]string   // window → key read last round (a finished message reads the same twice)
+	fails    map[string]int
+	send     func(win string) error            // autoYesSend; tests swap it
+	landed   func(w winInfo, key string) bool // autoYesLanded; tests swap it
+}
+
+func newAyWatcher(st *autoYesState) *ayWatcher {
+	return &ayWatcher{st: st, answered: map[string]time.Time{}, seen: map[uintptr]string{}, fails: map[string]int{},
+		send: autoYesSend, landed: autoYesLanded}
+}
+
+// answer handles one pending go-ahead in window w; true when a yes went out and landed.
+func (a *ayWatcher) answer(w winInfo, p ayPending, stable bool) bool {
+	if p.key == "" {
+		delete(a.seen, w.hwnd)
+		return false
+	}
+	if _, done := a.answered[p.key]; done {
+		return false
+	}
+	if !stable && a.seen[w.hwnd] != p.key { // still being written, maybe: wait for the next round
+		a.seen[w.hwnd] = p.key
+		return false
+	}
+	if ayRisky.MatchString(p.around) || ayAlwaysRisky.MatchString(p.around) {
+		if !projectAllows(p.around, activeProject()) {
+			a.answered[p.key] = time.Now()
+			autoYesLogf("left for you (it is about deleting or overwriting, or names something outside the project): %s", p.question)
+			return false
+		}
+		autoYesLogf("project mode: delete/overwrite inside %s", activeProject())
+	}
+	if err := a.send(fmt.Sprint(w.hwnd)); err != nil {
+		a.answered[p.key] = time.Now()
+		autoYesLogf("could not answer (%v): %s", err, p.question)
+		return false
+	}
+	if !a.landed(w, p.key) {
+		if a.fails[p.key]++; a.fails[p.key] < 3 {
+			autoYesLogf("typed yes but it did not reach Perplexity, will retry: %s", p.question)
+			return false
+		}
+		a.answered[p.key] = time.Now()
+		autoYesLogf("gave up after 3 tries, left for you: %s", p.question)
+		return false
+	}
+	a.answered[p.key] = time.Now()
+	a.st.Replies++
+	autoYesLogf("answered yes to: %s", p.question)
+	return true
+}
+
+// visitWaiting opens a background chat the sidebar marks as waiting, answers it if it asks for a
+// go-ahead, and goes back to the chat that was showing.
+func (a *ayWatcher) visitWaiting(w winInfo, th ayItem) {
+	cx, cy := th.x+th.w/2, th.y+th.h/2
+	if _, err := toolWindow(jsonRaw(map[string]any{"action": "do", "window": fmt.Sprint(w.hwnd),
+		"steps": []map[string]any{{"click_at": []int{cx, cy}, "screen": true}, {"wait": 2.5}}})); err != nil {
+		return
+	}
+	autoYesLogf("opened a waiting chat in the background: %s", clip(th.name, 80))
+	if p, _, err := ayRead(w); err == nil {
+		a.answer(w, p, true)
+	}
+	toolWindow(jsonRaw(map[string]any{"action": "do", "window": fmt.Sprint(w.hwnd), "steps": []map[string]any{{"click": "Back"}, {"wait": 1}}}))
+}
+
+// autoYesRun is the watcher (`tokensaver autoyes run`); it runs in the user's session and
+// watches every Perplexity window.
 func autoYesRun() int {
-	if _, err := autoYesWindowText(); err != nil {
+	if len(ayWindows()) == 0 {
 		writeJSONAtomic(autoYesPath(), autoYesState{Why: "the Perplexity window is not open"})
 		return 1
 	}
@@ -192,8 +291,15 @@ func autoYesRun() int {
 		autoYesLogf("switched off: %s (%d repl(ies))", why, st.Replies)
 		return 0
 	}
-	var answered, seen, failedKey string
-	missing, fails := 0, 0
+	a := newAyWatcher(&st)
+	// what is already on screen when it switches on was asked before: not answered
+	for _, w := range ayWindows() {
+		if p, _, err := ayRead(w); err == nil && p.key != "" {
+			a.answered[p.key] = time.Now()
+		}
+	}
+	visited := map[string]time.Time{}
+	missing := 0
 	for {
 		time.Sleep(3 * time.Second)
 		if cur := loadAutoYes(); !cur.On || cur.PID != st.PID {
@@ -205,49 +311,36 @@ func autoYesRun() int {
 		}
 		st.Beat = time.Now()
 		writeJSONAtomic(autoYesPath(), st)
-		text, err := autoYesWindowText()
-		if err != nil {
+		wins := ayWindows()
+		if len(wins) == 0 {
 			if missing++; missing >= 3 {
 				return stop("the Perplexity window closed")
 			}
 			continue
 		}
 		missing = 0
-		q, around, key := confirmQuestion(text)
-		if key == "" || key == answered {
-			seen = ""
-			continue
-		}
-		if key != seen { // the same finished message twice in a row, so it is not still being written
-			seen = key
-			continue
-		}
-		answered = key
-		if ayRisky.MatchString(around) || ayAlwaysRisky.MatchString(around) {
-			if !projectAllows(around, activeProject()) {
-				autoYesLogf("left for you (it is about deleting or overwriting, or names something outside the project): %s", q)
+		for _, w := range wins {
+			p, waiting, err := ayRead(w)
+			if err != nil {
 				continue
 			}
-			autoYesLogf("project mode: delete/overwrite inside %s", activeProject())
-		}
-		if err := autoYesSend(); err != nil {
-			autoYesLogf("could not answer (%v): %s", err, q)
-			continue
-		}
-		if !autoYesLanded(key) {
-			if key != failedKey {
-				failedKey, fails = key, 0
+			a.answer(w, p, false)
+			for _, th := range waiting { // a second chat waiting behind the one on screen
+				if p.key != "" && a.answered[p.key].IsZero() {
+					break // this window's own question first
+				}
+				if time.Since(visited[th.name]) < 30*time.Second {
+					continue
+				}
+				visited[th.name] = time.Now()
+				a.visitWaiting(w, th)
 			}
-			if fails++; fails < 3 {
-				answered = "" // try again on the next round
-				autoYesLogf("typed yes but it did not reach Perplexity, will retry: %s", q)
-			} else {
-				autoYesLogf("gave up after 3 tries, left for you: %s", q)
-			}
-			continue
 		}
-		st.Replies++
-		autoYesLogf("answered yes to: %s", q)
+		for k, t := range a.answered { // forget after the longest auto-yes run
+			if time.Since(t) > 4*time.Hour {
+				delete(a.answered, k)
+			}
+		}
 	}
 }
 

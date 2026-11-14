@@ -413,18 +413,27 @@ func screenshot(window string, x, y *int, w, h, maxPx int, question string, gpu 
 		info += fmt.Sprintf("; multiply picture x,y by %.2f for click_at", scale)
 	}
 	if strings.TrimSpace(question) != "" {
-		dir := filepath.Join(appHome, "cache", "windows")
-		os.MkdirAll(dir, 0o755)
-		p := filepath.Join(dir, slug("shot "+label)+".jpg")
-		if err := os.WriteFile(p, buf.Bytes(), 0o644); err != nil {
-			return "", nil, err
-		}
-		args, _ := json.Marshal(map[string]any{"action": "ask", "paths": []string{p}, "question": question, "gpu": gpu})
-		ans, err := toolLocalAI(args)
+		ans, err := askAboutImage(buf.Bytes(), label, question, gpu)
 		if err != nil {
 			return "", nil, err
 		}
-		return info + " (answered by local AI from " + p + ")\n" + ans, nil, nil
+		return info + ans, nil, nil
 	}
 	return info, buf.Bytes(), nil
+}
+
+// askAboutImage saves a JPEG and has the local AI answer a question about it (window and browser screenshots).
+func askAboutImage(jpg []byte, label, question, gpu string) (string, error) {
+	dir := filepath.Join(appHome, "cache", "windows")
+	os.MkdirAll(dir, 0o755)
+	p := filepath.Join(dir, slug("shot "+label)+".jpg")
+	if err := os.WriteFile(p, jpg, 0o644); err != nil {
+		return "", err
+	}
+	args, _ := json.Marshal(map[string]any{"action": "ask", "paths": []string{p}, "question": question, "gpu": gpu})
+	ans, err := toolLocalAI(args)
+	if err != nil {
+		return "", err
+	}
+	return " (answered by local AI from " + p + ")\n" + ans, nil
 }

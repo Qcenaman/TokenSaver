@@ -76,6 +76,41 @@ type uiaItem struct {
 	name, val string
 }
 
+// runUIAScript writes a UI Automation script to the scripts folder (when it changed) and runs it
+// for window hwnd, killing it after timeout; timedOut tells the caller why it stopped.
+func runUIAScript(name, body string, hwnd uintptr, timeout time.Duration) (out []byte, timedOut bool, err error) {
+	script := filepath.Join(appHome, "scripts", name)
+	if b, rerr := os.ReadFile(script); rerr != nil || string(b) != body {
+		os.MkdirAll(filepath.Dir(script), 0o755)
+		if err := os.WriteFile(script, []byte(body), 0o644); err != nil {
+			return nil, false, err
+		}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	cmd := quietCmd(psExe(), "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", script, "-Hwnd", strconv.FormatInt(int64(hwnd), 10))
+	done := make(chan struct{})
+	go func() {
+		select {
+		case <-ctx.Done():
+			if cmd.Process != nil {
+				_ = cmd.Process.Kill()
+			}
+		case <-done:
+		}
+	}()
+	out, err = cmd.Output()
+	close(done)
+	return out, ctx.Err() != nil, err
+}
+
+// canceledCtx is an already-finished context, for callers that report a timeout through ctx.Err().
+func canceledCtx() (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	return ctx, cancel
+}
+
 // uiaText reads a window's accessibility tree and lays it out in rows, top to bottom.
 func uiaText(w winInfo) (string, error) {
 	var out []byte
@@ -88,28 +123,12 @@ func uiaText(w winInfo) (string, error) {
 		}
 		out = []byte(strings.Join(lines, "\n"))
 	} else {
-		script := filepath.Join(appHome, "scripts", "uiatext.ps1")
-		if b, err := os.ReadFile(script); err != nil || string(b) != uiaScript {
-			os.MkdirAll(filepath.Dir(script), 0o755)
-			if err := os.WriteFile(script, []byte(uiaScript), 0o644); err != nil {
-				return "", err
-			}
+		var timedOut bool
+		out, timedOut, err = runUIAScript("uiatext.ps1", uiaScript, w.hwnd, 40*time.Second)
+		if timedOut {
+			ctx, cancel = canceledCtx()
+			defer cancel()
 		}
-		ctx, cancel = context.WithTimeout(context.Background(), 40*time.Second)
-		defer cancel()
-		cmd := quietCmd(psExe(), "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", script, "-Hwnd", strconv.FormatInt(int64(w.hwnd), 10))
-		done := make(chan struct{})
-		go func() {
-			select {
-			case <-ctx.Done():
-				if cmd.Process != nil {
-					cmd.Process.Kill()
-				}
-			case <-done:
-			}
-		}()
-		out, err = cmd.Output()
-		close(done)
 	}
 	var items []uiaItem
 	seen := map[string]bool{}

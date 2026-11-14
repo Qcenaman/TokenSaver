@@ -290,6 +290,11 @@ const jsFindEl = `(function(want, kinds){
 
 func jsStr(s string) string { b, _ := json.Marshal(s); return string(b) }
 
+// jsClickLabel clicks the button or link whose text or label matches target; returns its text or NOTFOUND.
+func jsClickLabel(target string) string {
+	return `(function(){ const e = ` + jsFindEl + `(` + jsStr(target) + `, 'a,button,input[type=submit],input[type=button],[role=button],[role=link],[role=tab],[role=menuitem],label,summary,[onclick]'); if (!e) return 'NOTFOUND'; e.scrollIntoView({block:'center'}); e.click(); return (e.innerText||e.value||e.getAttribute('aria-label')||'').trim().slice(0,60); })()`
+}
+
 func toolBrowser(raw json.RawMessage) (string, error) {
 	var a struct {
 		Action   string  `json:"action"`
@@ -349,9 +354,8 @@ func toolBrowser(raw json.RawMessage) (string, error) {
 		time.Sleep(400 * time.Millisecond)
 	}
 	if a.URL != "" {
-		if !strings.Contains(a.URL, "://") {
-			a.URL = "https://" + a.URL
-		}
+		a.URL = fixURL(a.URL)
+		consoleWatchEnsure()
 		if _, err := w.call("Page.navigate", map[string]any{"url": a.URL}, 30*time.Second); err != nil {
 			return "", err
 		}
@@ -432,8 +436,7 @@ func toolBrowser(raw json.RawMessage) (string, error) {
 		if a.Target == "" {
 			return "", errors.New("click needs target: the text of a button or link")
 		}
-		js := `(function(){ const e = ` + jsFindEl + `(` + jsStr(a.Target) + `, 'a,button,input[type=submit],input[type=button],[role=button],[role=link],[role=tab],[role=menuitem],label,summary,[onclick]'); if (!e) return 'NOTFOUND'; e.scrollIntoView({block:'center'}); e.click(); return (e.innerText||e.value||e.getAttribute('aria-label')||'').trim().slice(0,60); })()`
-		s, err := w.eval(js, 10*time.Second)
+		s, err := w.eval(jsClickLabel(a.Target), 10*time.Second)
 		if err != nil {
 			return "", err
 		}

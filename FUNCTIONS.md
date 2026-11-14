@@ -1,6 +1,6 @@
 # TokenSaver functions
 
-**Version 2.9.0**
+**Version 2.10.0**
 
 Windows PC helper that Claude hands work to, so the steps run on the PC instead of costing tokens in the chat. Runs as an MCP server in Claude desktop. Everything it keeps is in `D:\Claude Apps\TokenSaver`.
 
@@ -16,7 +16,7 @@ Windows PC helper that Claude hands work to, so the steps run on the PC instead 
 - **run** â€” runs commands in the background and returns only the useful lines (or the local AI's summary of a long output); admin commands without UAC prompts, destructive ones need a yes
 - **system** â€” PC info (drives, GPU, CUDA, installed tools), processes, ports, kill
 - **web** â€” search the web and read pages and PDFs on the PC; local AI can answer from pages
-- **browser** â€” real Chrome with its own TokenSaver profile (sign in once, stays signed in): open, text, find, links, click, fill, press, wait; text only, for JavaScript and signed-in pages
+- **browser** â€” real Chrome with its own TokenSaver profile (sign in once, stays signed in): open (URLs or file paths), text, find, links, click, fill, press, wait for JavaScript and signed-in pages; and for canvas pages and games: screenshot (or a local AI answer about it), ocr of the page as drawn, console messages and uncaught errors since it opened, do steps sent to the page (click_at, move, drag, scroll, hold and press keys, type, click on OCR text) with the page after, changes-only checks
 - **media** â€” audio/video as text: info, transcript (local Whisper on the GPU, cached), frames (stills + their OCR text)
 - **office** â€” Word, Excel, PowerPoint, PDF: create (from Markdown or rows), edit (replace text, add/delete paragraphs or slides, set cells and formulas, add rows and sheets; PDF merge, pick/reorder pages, rotate, stamp page numbers or watermark, split), read (outline, cells with formulas, PDF pages; old .doc/.xls/.ppt too), convert through installed Office (e.g. to PDF); old copy kept on every edit
 - **rag** â€” search your files by meaning (C: and D:, documents and code; index updated only when asked) and keep memory notes Claude can recall in later chats; uses the CPU by itself while ComfyUI or training holds the GPU
@@ -34,6 +34,11 @@ Windows PC helper that Claude hands work to, so the steps run on the PC instead 
 Also: GitHub repos as paths (owner/name[@ref][/sub] in find, read, scan, check, outline and git) read from a temporary copy TokenSaver keeps on the PC, updated as needed and removed after a day unused, so Claude never clones repos itself; tells Claude desktop to prefer TokenSaver over its built-in tools, undo for file jobs, job-end signals through GitHub (no polling), protected system folders; the terminal also reconnects Claude desktop and installs or removes the admin helper.
 
 ## What's new
+### 2.10.0
+- browser: screenshot (or a local AI answer about it), ocr of the page as drawn (canvas too), console messages and uncaught errors since the page opened, and do steps sent to the page (click_at, move, drag, scroll, hold and press keys, type, click on OCR text) with then: screenshot / ocr / text / console; changes:true says whether the picture or text changed; open takes file paths
+- auto-yes reads only Perplexity's newest answer (never your query bubbles, the sidebar history, the input box or its own "yes"), only when that answer ends with a go-ahead question, logs the question alone and answers each question once
+- auto-yes watches every Perplexity window (the app and browser tabs on perplexity.ai) and opens a background chat the sidebar marks as waiting, answers it and goes back
+- fix: project mode recognises /tmp and other Linux paths as outside the project
 ### 2.9.0
 - Setup installer for other people: the program named TokenSaver-Setup.exe (or `tokensaver setup-perplexity`) installs TokenSaver for the user, installs Tailscale when missing and signs in through the browser, installs the boot service (one permission prompt), allows and turns on Tailscale Funnel, adds the TokenSaver connector in Perplexity by itself (falls back to the address on the clipboard and three steps), and puts a how-to on the Desktop; finished steps are skipped when run again
 - A new PC installs to %LOCALAPPDATA%\TokenSaver (D:\Claude Apps\TokenSaver stays where it already exists); a marker file next to app\ lets the service and the user find the same folder

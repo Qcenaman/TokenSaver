@@ -9,6 +9,12 @@ import (
 
 // fixURL adds a scheme: http:// for this PC's dev servers, https:// otherwise.
 func fixURL(u string) string {
+	if len(u) > 2 && u[1] == ':' && (u[2] == '\\' || u[2] == '/') && (u[0]|0x20 >= 'a' && u[0]|0x20 <= 'z') { // D:\x\index.html
+		return "file:///" + strings.ReplaceAll(u, "\\", "/")
+	}
+	if strings.HasPrefix(u, "/") && !strings.HasPrefix(u, "//") { // /home/x/index.html
+		return "file://" + u
+	}
 	if strings.Contains(u, "://") || strings.HasPrefix(u, "about:") || strings.HasPrefix(u, "file:") {
 		return u
 	}

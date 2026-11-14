@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-const appVersion = "2.9.0"
+const appVersion = "2.10.0"
 
 func main() {
 	initApp()

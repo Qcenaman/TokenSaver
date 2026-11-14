@@ -84,7 +84,7 @@ func inProject(p, folder string) bool {
 
 var (
 	// absolute paths an assistant writes in a question
-	pathInTextRe = regexp.MustCompile(`(?i)(\b[a-z]:[\\/][^\s"'<>|?*` + "`" + `]*|~[\\/][^\s"'<>|?*` + "`" + `]*|(^|\s)/(home|users|etc|var|usr|opt|mnt)/[^\s"'<>|?*` + "`" + `]*)`)
+	pathInTextRe = regexp.MustCompile(`(?i)(\b[a-z]:[\\/][^\s"'<>|?*` + "`" + `]*|~[\\/][^\s"'<>|?*` + "`" + `]*|(^|\s)/(home|users|etc|var|usr|opt|mnt|tmp|root|srv|media|run)/[^\s"'<>|?*` + "`" + `]*)`)
 	// wiping a whole drive: never answered, not even in full mode
 	ayDriveWipe = regexp.MustCompile(`(?i)\b(format\s+[a-z]:|format (the |a |this )?(drive|disk|partition)|diskpart|clean (all|disk)|wipe (the |a |this )?(drive|disk|partition)|initialize-disk|clear-disk)`)
 	// never answered by auto-yes in project mode
