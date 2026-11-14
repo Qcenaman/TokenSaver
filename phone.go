@@ -408,6 +408,7 @@ func phoneStatus(c phoneConfig) string {
 		sb.WriteString("adb: none — " + err.Error() + "\n")
 	}
 	sb.WriteString(pcRoutesStatus())
+	sb.WriteString(otherDevicesStatus())
 	return strings.TrimSpace(sb.String())
 }
 

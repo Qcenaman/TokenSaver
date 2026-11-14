@@ -1,6 +1,6 @@
 # TokenSaver functions
 
-**Version 2.11.0**
+**Version 2.11.1**
 
 Windows PC helper that Claude hands work to, so the steps run on the PC instead of costing tokens in the chat. Runs as an MCP server in Claude desktop. Everything it keeps is in `D:\Claude Apps\TokenSaver`.
 
@@ -34,6 +34,8 @@ Windows PC helper that Claude hands work to, so the steps run on the PC instead 
 Also: GitHub repos as paths (owner/name[@ref][/sub] in find, read, scan, check, outline and git) read from a temporary copy TokenSaver keeps on the PC, updated as needed and removed after a day unused, so Claude never clones repos itself; tells Claude desktop to prefer TokenSaver over its built-in tools, undo for file jobs, job-end signals through GitHub (no polling), protected system folders; the terminal also reconnects Claude desktop and installs or removes the admin helper.
 
 ## What's new
+### 2.11.1
+- fix: the TV, tablet and other devices that hold this PC's link no longer overwrite the phone's addresses when they report in, so the PC stops sending the phone's token to the TV ("the phone rejected the token"); they are kept in devices.json and listed in phone status
 ### 2.11.0
 - Perplexity gets whole outputs (no token saving): run/job show the whole output, read the whole file, find/scan/outline/web/browser/window full results, screenshots 1600 px, descriptions without the token-saving steering; ceiling full_output_max_chars (400000), list full_output_clients in config.json (default perplexity); Claude, the phone and RemoteAI unchanged
 - Perplexity screenshots also come back in words (OCR text plus a local AI description), and its window, browser and local_ai descriptions name the local AI helper

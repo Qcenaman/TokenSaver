@@ -249,6 +249,16 @@ func linkHandler(c linkConfig) http.Handler {
 		body, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))
 		json.Unmarshal(body, &rep)
 		pc := loadPhoneCfg()
+		// Several devices (phone, tablet, TV) hold this PC's link and report in. Only the paired
+		// phone updates phone.json; the others are kept in devices.json and get the routes back.
+		direct, _, _ := net.SplitHostPort(r.RemoteAddr) // the connection itself, never a forwarded header
+		if otherDevice(pc, rep.LanIP, rep.TailscaleIP, direct) {
+			saveOtherDevice(rep.LanIP, rep.TailscaleIP, rep.AdbTcp, rep.Network, rep.Battery)
+			out, _ := json.Marshal(map[string]any{"routes": currentRoutes(loadLinkCfg(), rep.LanIP)})
+			w.Header().Set("Content-Type", "application/json")
+			w.Write(out)
+			return
+		}
 		if rep.LanIP != "" {
 			pc.LanIP = rep.LanIP
 		}
