@@ -4,8 +4,8 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
-val appVersionName = "0.2.2"
-val appVersionCode = 12
+val appVersionName = "0.2.3"
+val appVersionCode = 13
 
 android {
     namespace = "com.qcenaman.mobiletokensaver"
@@ -16,7 +16,8 @@ android {
         targetSdk = 35
         versionCode = appVersionCode
         versionName = appVersionName
-        ndk { abiFilters += "arm64-v8a" }
+        // 64-bit phones and tablets, and 32-bit ARM devices such as Android TVs
+        ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
     }
     // One committed keystore for every build, so each new APK installs over the previous one.
     signingConfigs {
@@ -60,17 +61,23 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
 }
 
-// The Tailscale Funnel tunnel (Go, tsnet) built as a static linux/arm64 binary and shipped as a native lib.
+// The Tailscale Funnel tunnel (Go, tsnet) built as a static Linux binary per ABI and shipped as a native lib.
 val tunnelDir = rootProject.file("tunnel")
 val goExe = (findProperty("go.exe") as String?) ?: "go"
-val tunnelOut = file("src/main/jniLibs/arm64-v8a/libtsfunnel.so")
-val buildTunnel by tasks.registering(Exec::class) {
-    onlyIf { findProperty("skipTunnel") == null }
-    inputs.files(fileTree(tunnelDir) { include("*.go", "go.mod", "go.sum") }).withPropertyName("src")
-    outputs.file(tunnelOut)
-    workingDir = tunnelDir
-    environment("CGO_ENABLED", "0"); environment("GOOS", "linux"); environment("GOARCH", "arm64")
-    commandLine(goExe, "build", "-trimpath", "-ldflags=-s -w", "-o", tunnelOut.absolutePath, ".")
-    doFirst { tunnelOut.parentFile.mkdirs() }
+// ABI → GOARCH, GOARM
+val tunnelAbis = mapOf("arm64-v8a" to ("arm64" to ""), "armeabi-v7a" to ("arm" to "7"))
+val tunnelTasks = tunnelAbis.map { (abi, arch) ->
+    val out = file("src/main/jniLibs/$abi/libtsfunnel.so")
+    tasks.register<Exec>("buildTunnel-$abi") {
+        onlyIf { findProperty("skipTunnel") == null }
+        inputs.files(fileTree(tunnelDir) { include("*.go", "go.mod", "go.sum") }).withPropertyName("src")
+        outputs.file(out)
+        workingDir = tunnelDir
+        environment("CGO_ENABLED", "0"); environment("GOOS", "linux"); environment("GOARCH", arch.first)
+        if (arch.second.isNotEmpty()) environment("GOARM", arch.second)
+        commandLine(goExe, "build", "-trimpath", "-ldflags=-s -w", "-o", out.absolutePath, ".")
+        doFirst { out.parentFile.mkdirs() }
+    }
 }
+val buildTunnel by tasks.registering { dependsOn(tunnelTasks) }
 tasks.named("preBuild") { dependsOn(buildTunnel) }
