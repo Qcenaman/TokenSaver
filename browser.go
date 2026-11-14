@@ -98,7 +98,7 @@ func ensureBrowser(show bool) error {
 		return err
 	}
 	go cmd.Wait()
-	for i := 0; i < 60; i++ {
+	for i := 0; i < 150; i++ { // up to 30 s: a first start on a slow or busy machine takes a while
 		time.Sleep(200 * time.Millisecond)
 		if _, err := cdpTargets(); err == nil {
 			return nil

@@ -262,6 +262,9 @@ draw(); console.log('game ready'); setTimeout(() => { undefinedThing.go(); }, 10
 		t.Fatal(err)
 	}
 	if _, err := toolBrowser(jsonRaw(map[string]any{"action": "open", "url": page})); err != nil {
+		if strings.Contains(err.Error(), "didn't start") {
+			t.Skip("this CI machine could not start Chrome: " + err.Error())
+		}
 		t.Fatal(err)
 	}
 	time.Sleep(300 * time.Millisecond)
