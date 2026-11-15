@@ -254,6 +254,7 @@ func summarizeOutput(p string, tailN int) outSummary {
 	if err != nil {
 		text = strings.ToValidUTF8(string(b), "?")
 	}
+	text = cleanCLIXML(text)
 	raw := strings.Split(text, "\n")
 	if s.partial && len(raw) > 0 {
 		raw = raw[1:]
@@ -493,4 +494,34 @@ func fullJobOutput(p string, finished bool) string {
 		t = t[cut:]
 	}
 	return fmt.Sprintf("\nOutput (%s lines):\n%s%s", hc(int64(strings.Count(t, "\n")+1)), t, note)
+}
+
+var (
+	clixmlObjsRe = regexp.MustCompile(`(?s)<Objs Version="[^"]*" xmlns="http://schemas.microsoft.com/powershell/2004/04">.*?</Objs>`)
+	clixmlErrRe  = regexp.MustCompile(`(?s)<S S="(?:Error|Warning)">(.*?)</S>`)
+	clixmlEscRe  = regexp.MustCompile(`_x([0-9A-Fa-f]{4})_`)
+)
+
+// cleanCLIXML turns the "#< CLIXML" blocks a nested powershell writes to a redirected stderr into
+// plain text: progress records go, error and warning lines stay as text.
+func cleanCLIXML(text string) string {
+	if !strings.Contains(text, "CLIXML") && !strings.Contains(text, "<Objs ") {
+		return text
+	}
+	text = strings.ReplaceAll(text, "#< CLIXML", "")
+	return clixmlObjsRe.ReplaceAllStringFunc(text, func(blk string) string {
+		var lines []string
+		for _, m := range clixmlErrRe.FindAllStringSubmatch(blk, -1) {
+			t := clixmlEscRe.ReplaceAllStringFunc(m[1], func(x string) string {
+				var r rune
+				fmt.Sscanf(x[2:6], "%x", &r)
+				return string(r)
+			})
+			t = strings.NewReplacer("&lt;", "<", "&gt;", ">", "&quot;", "\"", "&apos;", "'", "&amp;", "&").Replace(t)
+			if t = strings.TrimRight(t, "\r\n"); strings.TrimSpace(t) != "" {
+				lines = append(lines, t)
+			}
+		}
+		return strings.Join(lines, "\n")
+	})
 }

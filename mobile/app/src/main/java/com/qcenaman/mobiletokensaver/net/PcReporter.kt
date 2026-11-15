@@ -52,6 +52,7 @@ object PcReporter {
                         else if (since >= REPORT_EVERY_MS) PcLink.report(app, why = "timer")
                         else if (PcLink.lastReportError.isNotEmpty() && since >= 2 * 60_000L) PcLink.report(app, why = "retry")
                     }
+                    Peers.tick()
                 } catch (_: Exception) {}
                 try { Thread.sleep(60_000) } catch (_: InterruptedException) {}
             }

@@ -52,6 +52,7 @@ class HttpServer(port: Int, private val mcp: McpServer = McpServer(Registry.tool
                 json(status(code), body).also { it.addHeader("Cache-Control", "no-store") }
             }
             path == "/link" && s.method == Method.POST -> link(s)
+            path == "/peers/sync" && s.method == Method.POST -> peersSync(s)
             path == "/" -> text(Response.Status.OK, "MobileTokenSaver: MCP endpoint is /mcp")
             else -> text(Response.Status.NOT_FOUND, "not found")
         }
@@ -115,6 +116,14 @@ class HttpServer(port: Int, private val mcp: McpServer = McpServer(Registry.tool
         PcLink.store(json)
         PcLink.reportSoon(ctx, "pair", 1500)
         return text(Response.Status.OK, "ok")
+    }
+
+    /** Shared peer registry swap (Peers): only the app's own access token, never an OAuth one. */
+    private fun peersSync(s: IHTTPSession): Response {
+        val auth = s.headers["authorization"]?.removePrefix("Bearer ")?.trim() ?: s.headers["x-mts-token"]
+        if (auth.isNullOrEmpty() || auth != com.qcenaman.mobiletokensaver.Prefs.token) { lastNote = "bad token"; return text(Response.Status.UNAUTHORIZED, "unauthorized") }
+        val reply = runCatching { Peers.handleSync(body(s)) }.getOrElse { return text(Response.Status.BAD_REQUEST, "bad json") }
+        return json(Response.Status.OK, reply).also { it.addHeader("Cache-Control", "no-store") }
     }
 
     private fun query(s: IHTTPSession) = OAuth.form(s.queryParameterString.orEmpty())

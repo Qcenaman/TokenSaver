@@ -19,7 +19,7 @@ class McpServer(private val tools: List<Tool>, private val gate: Gate = Gate()) 
         "run_job for several commands; job to follow long ones. scan/find/read/write for files (write also moves, copies, deletes, makes folders). " +
         "apps to list/launch/stop/install/uninstall and grant/revoke permissions or set appops. " +
         "ui to read the screen as a compact text tree and tap/swipe/type; screen for a screenshot only when asked. " +
-        "notifications, system, web as named; pc to use the user's desktop PC through its TokenSaver (when linked). Outputs are capped; ask for a tail/limit when you need less."
+        "notifications, system, web as named; pc to use the user's desktop PC through its TokenSaver (when linked); peer for any of the user's other devices (laptop, Michie Pc, phone, tablet, TV) from the shared registry. Outputs are capped; ask for a tail/limit when you need less."
 
     /**
      * One Streamable HTTP POST body: a single JSON-RPC message or a batch. Returns the reply body,

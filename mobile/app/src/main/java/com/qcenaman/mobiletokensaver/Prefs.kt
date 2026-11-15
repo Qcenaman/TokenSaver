@@ -95,6 +95,26 @@ object Prefs {
         get() = sp.getString("pc_route", null)
         set(v) = sp.edit().putString("pc_route", v).apply()
 
+    /** Shared peer registry (Peers): name → link of every other TokenSaver / MobileTokenSaver device. */
+    var peersJson: String?
+        get() = sp.getString("peers", null)
+        set(v) = sp.edit().putString("peers", v).apply()
+    /** This device's name in the registry (given by the computers, else the device name). */
+    var meshName: String
+        get() = sp.getString("mesh_name", null).orEmpty()
+        set(v) = sp.edit().putString("mesh_name", v).apply()
+    /** The computer that counts as "the PC" (sent by the computers). */
+    var meshPrimary: String
+        get() = sp.getString("mesh_primary", null).orEmpty()
+        set(v) = sp.edit().putString("mesh_primary", v).apply()
+    /** Fingerprint of this device's own link and when it last changed (ms). */
+    var meshFp: String
+        get() = sp.getString("mesh_fp", null).orEmpty()
+        set(v) = sp.edit().putString("mesh_fp", v).apply()
+    var meshUpdated: Long
+        get() = sp.getLong("mesh_updated", 0L)
+        set(v) = sp.edit().putLong("mesh_updated", v).apply()
+
     private fun rnd(n: Int): String = ByteArray(n).also { SecureRandom().nextBytes(it) }.joinToString("") { "%02x".format(it) }
 
     fun toolEnabled(name: String) = sp.getBoolean("tool_$name", true)

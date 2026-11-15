@@ -40,7 +40,7 @@ func jobLog(id string, maxLines int) (string, error) {
 	if st, err := loadState(id); err == nil {
 		state = " (" + st.Status + ")"
 	}
-	lines := strings.Split(strings.TrimRight(stripCtl(s), "\r\n"), "\n")
+	lines := strings.Split(strings.TrimRight(stripCtl(cleanCLIXML(s)), "\r\n"), "\n")
 	if s == "" {
 		return "no new output" + state, nil
 	}

@@ -343,10 +343,17 @@ func pairLog(format string, a ...any) {
 // --- stored peers -----------------------------------------------------------------------------------
 
 type peerEntry struct {
-	IP     string    `json:"ip"`
+	IP     string    `json:"ip"` // Tailscale address
 	Port   int       `json:"port"`
 	Token  string    `json:"token"`
 	Paired time.Time `json:"paired"`
+	// shared registry (mesh.go): filled by the device's own announcement and passed on by any node
+	LAN     string    `json:"lan,omitempty"`
+	MAC     string    `json:"mac,omitempty"`
+	Kind    string    `json:"kind,omitempty"`    // computer | android
+	Tunnel  string    `json:"tunnel,omitempty"`  // https base URL reaching its serve front
+	Adb     string    `json:"adb,omitempty"`     // adb serial (Android): <tailscale-ip>:5555
+	Updated time.Time `json:"updated,omitempty"` // when the device itself last changed its link
 }
 
 var peersMu sync.Mutex
@@ -456,7 +463,9 @@ func pairWith(p tsNode) error {
 		rep.Port = port
 	}
 	pairLog("got the link of %s (%s)", p.Name, ip)
-	return savePeer(p.Name, peerEntry{IP: ip, Port: rep.Port, Token: rep.Token, Paired: time.Now()})
+	old := loadPeers()[p.Name]
+	return savePeer(p.Name, peerEntry{IP: ip, Port: rep.Port, Token: rep.Token, Paired: time.Now(),
+		LAN: old.LAN, MAC: old.MAC, Kind: orStr(old.Kind, "computer"), Tunnel: old.Tunnel, Updated: old.Updated})
 }
 
 // mcpHTTPCall sends one MCP tools/call to base/mcp with a bearer token; code is the HTTP status.
@@ -588,70 +597,29 @@ func autoPair() []string {
 	return out
 }
 
-// peerAutoPairLoop runs in serve: shortly after start, then every 10 minutes.
+// peerAutoPairLoop runs in serve: shortly after start, then every 10 minutes it pairs and syncs
+// the shared registry with every node; each minute in between it re-announces this device at once
+// when its own link (token, addresses, tunnel) changed.
 func peerAutoPairLoop(ctx context.Context) {
 	wait := 30 * time.Second
+	var full time.Time
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-time.After(wait):
 		}
-		autoPair()
-		wait = 10 * time.Minute
+		wait = time.Minute
+		_, _, changed := meshSelf()
+		if changed || time.Since(full) >= 10*time.Minute {
+			autoPair()
+			meshTick()
+			full = time.Now()
+		}
 	}
 }
 
 // --- the peer tool ------------------------------------------------------------------------------------
-
-func toolPeer(raw json.RawMessage) (string, []toolImage, error) {
-	var a struct {
-		Action string          `json:"action"`
-		Peer   string          `json:"peer"`
-		Tool   string          `json:"tool"`
-		Args   json.RawMessage `json:"args"`
-	}
-	if err := json.Unmarshal(raw, &a); err != nil {
-		return "", nil, err
-	}
-	switch a.Action {
-	case "", "status":
-		return peerStatus(), nil, nil
-	case "pair":
-		if a.Peer == "" {
-			return strings.Join(autoPair(), "\n"), nil, nil
-		}
-		s, err := tsSelfFn()
-		if err != nil {
-			return "", nil, err
-		}
-		p, err := findPeer(s, a.Peer)
-		if err != nil {
-			return "", nil, err
-		}
-		if err := pairWith(p); err != nil {
-			return "", nil, err
-		}
-		return p.Name + ": paired", nil, nil
-	case "call":
-		if a.Peer == "" || a.Tool == "" {
-			return "", nil, errors.New("call needs peer and tool")
-		}
-		if a.Tool == "peer" {
-			return "", nil, errors.New("call a tool on the peer itself, not its peer tool")
-		}
-		s, err := tsSelfFn()
-		if err != nil {
-			return "", nil, err
-		}
-		p, err := findPeer(s, a.Peer)
-		if err != nil {
-			return "", nil, err
-		}
-		return peerCall(p, a.Tool, a.Args)
-	}
-	return "", nil, fmt.Errorf("unknown peer action %q", a.Action)
-}
 
 func peerStatus() string {
 	var b strings.Builder

@@ -222,6 +222,8 @@ func linkHandler(c linkConfig) http.Handler {
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, "ok") })
 	// peer pairing: allowlisted computers of the tailnet's owner get the token (pair.go)
 	mux.HandleFunc("/pair", handlePair)
+	// shared peer registry: nodes holding this node's token swap their lists (mesh.go)
+	mux.HandleFunc("/peers/sync", handleMeshSync)
 	mux.HandleFunc("/mcp", func(w http.ResponseWriter, r *http.Request) {
 		serveMCPHTTP(w, r, func(r *http.Request) bool { return bearer(r) == c.Token }, "mcp")
 	})

@@ -1,6 +1,6 @@
 # TokenSaver functions
 
-**Version 2.12.0**
+**Version 2.13.0**
 
 Windows PC helper that Claude hands work to, so the steps run on the PC instead of costing tokens in the chat. Runs as an MCP server in Claude desktop. Everything it keeps is in `D:\Claude Apps\TokenSaver`.
 
@@ -22,7 +22,7 @@ Windows PC helper that Claude hands work to, so the steps run on the PC instead 
 - **rag** â€” search your files by meaning (C: and D:, documents and code; index updated only when asked) and keep memory notes Claude can recall in later chats; uses the CPU by itself while ComfyUI or training holds the GPU
 - **phone** â€” your Android phone through the AdbSaver engine on it (same tools: find, read, write, scan, run, ui, screen, apps, notifications, system, web, local_ai, saved) over the LAN, Tailscale from anywhere, or plain adb when the engine is down; status, pair, config, adb, tunnel, public, push_routes
 - **serve** / **install-link** â€” the phone reaches this PC's tools the same way: a token-protected HTTP front (port 8766) run by the "TokenSaver Link" task, reachable over LAN, Tailscale, a forwarded public port (`phone public setup`) or a cloudflared tunnel (`phone tunnel start`, works behind CGNAT, no Tailscale needed); the phone gets the current routes at every report
-- **peer** â€” your other computers running TokenSaver over Tailscale: call any of their tools from here (pairs on its own), status, pair; only allowlisted devices signed in as the tailnet's owner can pair (POST /pair, checked with Tailscale whois)
+- **peer** — every device running TokenSaver or MobileTokenSaver (desktop, laptop, Michie Pc, phone, tablet, TV) from one shared registry that syncs itself (POST /peers/sync, every 10 min and at once when a device's token or address changes), so tokens are never handled by hand: call any device's tools over LAN → Tailscale → tunnel → relay through another device → adb (Android) → Wake-on-LAN from here and the devices at home, then retries for ~90 s; status, wake, relay, sync, adopt (Android over adb), allow, pair; computers pair over Tailscale (POST /pair, checked with Tailscale whois)
 - **git** â€” Git in one call, never as admin, GitHub sign-in straight to the browser: status, log, diff, commit, push, pull, clone (updates an existing clone instead of failing), compare (two folders or repo versions file by file: only on one side, changed lines, same; pairs x_windows.go with x_linux.go), release (bumps the version, adds the notes to this file, commits and pushes), handoff (notes for another project from the commits and diff, summarized by the local AI)
 - **outline** â€” functions and types with line numbers for a code file or project (universal-ctags, regex fallback), so only the needed lines get read
 - **check** â€” lint and type-check code (Ruff + mypy for Python, ESLint + tsc for JS/TS, go vet + staticcheck for Go, Android lint for Gradle projects; skips gitignored files) on the PC, on the phone over ADB, or in a GitHub repo; safe autofixes with fix; build: compile + run the project's tests and return only the failing lines; review: a deep code review made for AI-written code (security, secrets, vulnerable or made-up packages, CI workflows, scripts, Kotlin, complexity, build + tests, unfinished or fake work) of the latest changes, with a BLOCK/FIX/PASS verdict
@@ -34,6 +34,11 @@ Windows PC helper that Claude hands work to, so the steps run on the PC instead 
 Also: GitHub repos as paths (owner/name[@ref][/sub] in find, read, scan, check, outline and git) read from a temporary copy TokenSaver keeps on the PC, updated as needed and removed after a day unused, so Claude never clones repos itself; tells Claude desktop to prefer TokenSaver over its built-in tools, undo for file jobs, job-end signals through GitHub (no polling), protected system folders; the terminal also reconnects Claude desktop and installs or removes the admin helper.
 
 ## What's new
+### 2.13.0
+- one shared peer registry for every device (name, LAN, Tailscale, MAC, port, token): any device that knows a link hands it to the others; newest announcement wins, so a changed token or IP heals itself
+- peer call falls back LAN → Tailscale → tunnel → relay through another device → adb → Wake-on-LAN (also sent from the devices at home) with retries; new peer actions wake, relay, sync, adopt, allow
+- Android devices of the tailnet's owner already authorized for this computer's adb (or on the allowlist) are adopted on their own; the phone paired with phone pair joins too
+- run: PowerShell's CLIXML progress noise is turned into plain error lines
 ### 2.12.0
 - auto-yes reads each finished Perplexity message with the local AI (Qwen coder) and replies properly: yes to a go-ahead, the recommended option to a choice, "You decide…" to a question in project / full auto mode; real questions and risky steps outside those modes are left for you; the phrase rules take over when the local AI can't run
 - tokensaver autoyes judge shows what the local AI makes of a message

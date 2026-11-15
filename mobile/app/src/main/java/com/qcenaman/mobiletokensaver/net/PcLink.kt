@@ -55,6 +55,15 @@ object PcLink {
         return changed
     }
 
+    /** A newer token for the same PC, learned from the peer registry. */
+    fun replaceToken(token: String) {
+        if (token.isEmpty()) return
+        val cur = linkMap()?.toMutableMap() ?: return
+        if (cur["token"] == token) return
+        cur["token"] = token; Prefs.pcLinkJson = Json.encode(cur); cachedBase = null
+        CmdLog.add("PC token updated from the peer registry")
+    }
+
     /** Set (or clear with "") a route by hand: kind = public | tunnel. */
     fun setManualRoute(kind: String, value: String): String {
         val key = when (kind.lowercase()) { "public", "public_host" -> "public_host"; "tunnel", "tunnel_url" -> "tunnel_url"; else -> return "kind must be public or tunnel" }
@@ -118,7 +127,7 @@ object PcLink {
     /** One MCP tools/call on the PC. */
     fun call(tool: String, argsJson: String): ToolResult {
         val p = pc() ?: return ToolResult.err("no PC link yet: run `phone pair` on the PC while the phone is on the LAN")
-        val (base, _) = reach() ?: return ToolResult.err("PC unreachable (${p.summary()}); try pc wake if it is asleep, or pc route to add a public/tunnel route")
+        val (base, _) = reach() ?: reach(force = true) ?: return viaPeers(p, tool, argsJson)
         val body = """{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":${Json.str(tool)},"arguments":$argsJson}}"""
         val reply = runCatching {
             val c = URL("$base/mcp").openConnection() as HttpURLConnection
@@ -136,6 +145,29 @@ object PcLink {
         val img = content.mapNotNull { it.asMap() }.firstOrNull { it.string("type") == "image" }
         val isErr = res["isError"] == true
         return if (img != null) ToolResult(text, isErr, img.string("data"), img.string("mimeType", "image/png")) else ToolResult(text, isErr)
+    }
+
+    /** The PC's name in the peer registry (its entry, else one built from this link so relays can be asked). */
+    fun peerName(p: Pc): String {
+        val n = PeerRegistry.norm(p.name)
+        Peers.lookup(n)?.let { return it.first }
+        if (p.tsIp.isNotEmpty()) Peers.lookup(p.tsIp)?.let { return it.first }
+        return n
+    }
+
+    /** No direct route: relay through another device, else wake the PC (here and from the relays) and retry. */
+    private fun viaPeers(p: Pc, tool: String, argsJson: String): ToolResult {
+        val n = peerName(p)
+        if (Peers.lookup(n) == null) {
+            // not in the registry yet: wake from here, then retry the direct routes with backoff
+            val w = wake()
+            for (d in longArrayOf(5_000, 10_000, 15_000, 20_000, 20_000, 20_000)) {
+                try { Thread.sleep(d) } catch (_: InterruptedException) { break }
+                if (reach(force = true) != null) return call(tool, argsJson)
+            }
+            return ToolResult.err("PC unreachable (${p.summary()}); $w; still down ~90 s later. pc route adds a public/tunnel route")
+        }
+        return Peers.call(n, tool, argsJson)
     }
 
     // ---- reporting to the PC (POST /phone/report) ----
@@ -215,6 +247,21 @@ object PcLink {
      * Wake-on-LAN: magic packet to the PC's MAC over the local broadcast (home Wi-Fi), and, when a public
      * route is set, to that host too (reaches the PC from anywhere if the router forwards UDP 9 to the LAN broadcast).
      */
+    /** Wake from here and from every registry device that answers (one of them is usually at home), then wait until it answers. */
+    fun wakeAndWait(): String {
+        val p = pc() ?: return "no PC link"
+        val n = peerName(p)
+        val e = Peers.lookup(n)?.second
+        val sent = if (e != null && e.string("mac").isNotEmpty()) Peers.wake(n, e, 0) else wake()
+        for (d in longArrayOf(5_000, 10_000, 15_000, 20_000, 20_000, 20_000)) {
+            try { Thread.sleep(d) } catch (_: InterruptedException) { break }
+            reach(force = true)?.let { return "$sent
+PC is up (${it.second})" }
+        }
+        return "$sent
+PC not answering yet after ~90 s (it may still be starting; pc status checks again)"
+    }
+
     fun wake(): String {
         val p = pc() ?: return "no PC link"
         val mac = p.mac.split(':', '-').mapNotNull { it.toIntOrNull(16)?.toByte() }
