@@ -255,11 +255,9 @@ object PcLink {
         val sent = if (e != null && e.string("mac").isNotEmpty()) Peers.wake(n, e, 0) else wake()
         for (d in longArrayOf(5_000, 10_000, 15_000, 20_000, 20_000, 20_000)) {
             try { Thread.sleep(d) } catch (_: InterruptedException) { break }
-            reach(force = true)?.let { return "$sent
-PC is up (${it.second})" }
+            reach(force = true)?.let { return "$sent\nPC is up (${it.second})" }
         }
-        return "$sent
-PC not answering yet after ~90 s (it may still be starting; pc status checks again)"
+        return "$sent\nPC not answering yet after ~90 s (it may still be starting; pc status checks again)"
     }
 
     fun wake(): String {
