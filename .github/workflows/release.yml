@@ -41,10 +41,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           v=v${{ steps.v.outputs.version }}
+          # notes: the body of the commit that set this version (not a later fix commit)
+          c=$(git log -1 --format=%H -G 'const appVersion' -- main.go)
+          git log -1 --format=%b "${c:-HEAD}" | grep -vE '^(Co-Authored-By|Claude-Session):' > notes.md || true
           if gh release view "$v" >/dev/null 2>&1; then
             gh release upload "$v" dist/* --clobber
+            # a release created with empty notes gets them now
+            if [ -z "$(gh release view "$v" --json body -q .body | tr -d '[:space:]')" ] && [ -s notes.md ]; then gh release edit "$v" --notes-file notes.md; fi
           else
-            git log -1 --format=%b | grep -vE '^(Co-Authored-By|Claude-Session):' > notes.md
             gh release create "$v" --target "$(git rev-parse HEAD)" --title "$v" --notes-file notes.md dist/*
           fi
           # ContextSaver / mobile releases live in this repo too: keep TokenSaver as "latest".

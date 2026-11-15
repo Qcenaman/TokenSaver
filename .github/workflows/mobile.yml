@@ -49,11 +49,24 @@ jobs:
         with:
           name: apk
           path: mobile/MobileTokenSaver-*.apk
+      - name: Fill empty release notes
+        if: github.ref == 'refs/heads/main' && steps.v.outputs.skip == '1'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          t="${{ steps.v.outputs.tag }}"
+          b=$(gh release view "$t" --json body -q .body | tr -d '[:space:]')
+          if [ -z "$b" ] || [ "$b" = "MobileTokenSaver${t}" ]; then
+            c=$(git log -1 --format=%H -G 'val appVersionName' -- app/build.gradle.kts)
+            git log -1 --format=%b "${c:-HEAD}" | grep -vE '^(Co-Authored-By|Claude-Session):' > notes.md || true
+            if [ -s notes.md ]; then gh release edit "$t" --notes-file notes.md; fi
+          fi
       - name: Release
         if: github.ref == 'refs/heads/main' && steps.v.outputs.skip != '1'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          git log -1 --format=%b -- . | grep -vE '^(Co-Authored-By|Claude-Session):' > notes.md || true
+          c=$(git log -1 --format=%H -G 'val appVersionName' -- app/build.gradle.kts)
+          git log -1 --format=%b "${c:-HEAD}" | grep -vE '^(Co-Authored-By|Claude-Session):' > notes.md || true
           [ -s notes.md ] || echo "MobileTokenSaver ${{ steps.v.outputs.tag }}" > notes.md
           gh release create --latest=false "${{ steps.v.outputs.tag }}" --target "$(git rev-parse HEAD)" --title "MobileTokenSaver ${{ steps.v.outputs.tag }}" --notes-file notes.md MobileTokenSaver-*.apk
