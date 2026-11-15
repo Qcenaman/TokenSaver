@@ -58,6 +58,11 @@ object Keeper {
         enableWirelessDebugging(ctx)
         // Connecting once over Wi-Fi also switches adbd to loopback TCP, so later starts need no Wi-Fi.
         if (!AdbManager.get(ctx).needsPairing && HelperClient.ensureStarted(ctx)) return
+        // Nothing privileged could flip the switch, or our key is not paired: drive Settings on screen (a11y + OCR).
+        if (!UiAdbSetup.wirelessOn(ctx) || AdbManager.get(ctx).needsPairing) {
+            val r = UiAdbSetup.autoRun(ctx)
+            if (r?.ok == true && HelperClient.ensureStarted(ctx)) return
+        }
         if (AdbManager.get(ctx).needsPairing && System.currentTimeMillis() - lastPairAsk > 30 * 60_000L) {
             lastPairAsk = System.currentTimeMillis()
             com.qcenaman.mobiletokensaver.adb.Pairing.startWatching(ctx)

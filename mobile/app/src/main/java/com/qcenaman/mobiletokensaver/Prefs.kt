@@ -56,6 +56,10 @@ object Prefs {
     var port: Int
         get() = sp.getInt("port", 8765)
         set(v) = sp.edit().putInt("port", v).apply()
+    /** Lock-screen PIN, used only when the watchdog has to wake the screen to switch on Wireless debugging. Empty = never unlock. */
+    var unlockPin: String
+        get() = sp.getString("unlock_pin", "") ?: ""
+        set(v) = sp.edit().putString("unlock_pin", v).apply()
     var setupDone: Boolean
         get() = sp.getBoolean("setup_done", false)
         set(v) = sp.edit().putBoolean("setup_done", v).apply()

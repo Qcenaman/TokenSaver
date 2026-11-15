@@ -4,8 +4,8 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
-val appVersionName = "0.3.0"
-val appVersionCode = 14
+val appVersionName = "0.4.0"
+val appVersionCode = 15
 
 android {
     namespace = "com.qcenaman.mobiletokensaver"
@@ -58,6 +58,8 @@ dependencies {
     implementation(platform("androidx.compose:compose-bom:2024.12.01"))
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.ui:ui")
+    // On-device OCR (Latin model bundled in the APK, works offline) for driving Settings when the a11y tree has no text
+    implementation("com.google.mlkit:text-recognition:16.0.1")
     testImplementation("junit:junit:4.13.2")
 }
 

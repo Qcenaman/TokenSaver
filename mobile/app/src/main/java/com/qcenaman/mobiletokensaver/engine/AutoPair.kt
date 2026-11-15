@@ -10,8 +10,8 @@ import java.util.concurrent.TimeUnit
 
 /**
  * Pairs our own ADB client with this phone's Wireless debugging from a code the user typed
- * (app screen, notification reply, or the PairReceiver broadcast). There is no automatic pairing:
- * the app never opens Settings or drives the screen by itself.
+ * (app screen, notification reply, or the PairReceiver broadcast), or one [UiAdbSetup] read off the
+ * Wireless debugging screen when the watchdog had to switch it on itself.
  */
 object AutoPair {
     @Volatile var lastResult = ""
