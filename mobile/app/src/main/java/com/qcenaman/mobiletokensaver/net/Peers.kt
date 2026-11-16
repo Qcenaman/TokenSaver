@@ -105,12 +105,23 @@ object Peers {
         if (code == 200) null else "HTTP $code"
     }.getOrElse { Routes.reason(it, ms) }
 
-    /** First route that answers: base, via; or null and what each route said. */
-    fun reach(e: Map<String, Any?>): Pair<Pair<String, String>?, List<String>> {
+    /** The name the node at base gives itself ("" when it can't tell: older versions). */
+    private fun whoami(base: String, ms: Int): String = runCatching {
+        val c = URL("$base/peers/whoami").openConnection() as HttpURLConnection
+        c.connectTimeout = ms; c.readTimeout = ms
+        if (c.responseCode != 200) "" else PeerRegistry.norm(c.inputStream.bufferedReader().readText().take(200))
+    }.getOrDefault("")
+
+    /**
+     * First route that answers as [name] (when given): base, via; or null and what each route said. A route answered by
+     * another device (the other OS of a dual-boot PC on the same LAN IP) does not count.
+     */
+    fun reach(e: Map<String, Any?>, name: String = ""): Pair<Pair<String, String>?, List<String>> {
         val tried = ArrayList<String>()
         for (r in PeerRegistry.routes(e)) {
             var why = probe(r.base, r.timeoutMs)
             if (why?.startsWith("timeout") == true && r.via == "tailscale") why = probe(r.base, r.timeoutMs * 2)
+            if (why == null && name.isNotEmpty()) whoami(r.base, r.timeoutMs).let { if (it.isNotEmpty() && it != name) why = "answered by $it" }
             if (why == null) return (r.base to r.via) to tried
             tried += "${r.via} $why"
         }
@@ -146,7 +157,7 @@ object Peers {
     // ---- syncing ----
 
     fun syncWith(name: String, e: Map<String, Any?>): String {
-        val (hit, tried) = reach(e)
+        val (hit, tried) = reach(e, name)
         val base = hit?.first ?: return "unreachable (${tried.joinToString(", ")})"
         val (code, reply) = post(base, "/peers/sync", e.string("token"), payload(name), 15_000)
         return when (code) {
@@ -227,7 +238,7 @@ object Peers {
         val (n, e) = lookup(name) ?: return ToolResult.err("$R$name is not in this node's registry (peer status lists who is; peer sync asks the others)")
         val notes = ArrayList<String>()
         fun direct(suffix: String): ToolResult? {
-            val (hit, tried) = reach(e)
+            val (hit, tried) = reach(e, n)
             if (hit == null) { if (suffix.isEmpty()) notes += tried; return null }
             val (code, res) = mcp(hit.first, e.string("token"), tool, argsJson)
             if (res == null) { notes += "${hit.second} dropped"; return null }
@@ -245,7 +256,7 @@ object Peers {
                 notes += wake(n, e, 0)
                 for (d in backoff) {
                     try { Thread.sleep(d) } catch (_: InterruptedException) { break }
-                    if (reach(e).first != null) direct(" after wake")?.let { return it }
+                    if (reach(e, n).first != null) direct(" after wake")?.let { return it }
                 }
                 notes += "still down ~90 s after the wake"
             }
@@ -255,7 +266,7 @@ object Peers {
 
     fun viaRelay(relay: String, target: String, tool: String, argsJson: String): ToolResult {
         val (rn, r) = lookup(relay) ?: return ToolResult.err("$R$relay unknown")
-        val base = reach(r).first?.first ?: return ToolResult.err("$R$rn itself unreachable")
+        val base = reach(r, rn).first?.first ?: return ToolResult.err("$R$rn itself unreachable")
         val a = """{"action":"call","peer":${Json.str(target)},"tool":${Json.str(tool)},"args":$argsJson,"hops":1}"""
         return mcp(base, r.string("token"), "peer", a).second ?: ToolResult.err("$R$rn dropped")
     }
@@ -270,7 +281,7 @@ object Peers {
             val ok = java.util.Collections.synchronizedList(ArrayList<String>())
             PeerRegistry.relays(n, selfName(), all(), Prefs.meshPrimary).map { r -> Thread {
                 val re = lookup(r)?.second ?: return@Thread
-                val base = reach(re).first?.first ?: return@Thread
+                val base = reach(re, r).first?.first ?: return@Thread
                 val res = mcp(base, re.string("token"), "peer", """{"action":"wake","peer":${Json.str(n)},"hops":1}""").second
                 if (res != null && !res.isError) ok += r
             }.apply { start() } }.forEach { it.join(30_000) }
@@ -299,7 +310,9 @@ object Peers {
         val m = all()
         val lines = arrayOfNulls<String>(m.size)
         m.entries.mapIndexed { i, (n, e) -> Thread {
-            val rs = PeerRegistry.routes(e).joinToString(", ") { r -> "${r.via} ${probe(r.base, r.timeoutMs) ?: "up"}" }.ifEmpty { "no address" }
+            val rs = PeerRegistry.routes(e).joinToString(", ") { r ->
+                "${r.via} ${probe(r.base, r.timeoutMs) ?: whoami(r.base, r.timeoutMs).let { w -> if (w.isNotEmpty() && w != n) "answered by $w" else "up" }}"
+            }.ifEmpty { "no address" }
             lines[i] = "  $n (${e.string("kind", "computer")}): $rs${if (e.string("mac").isNotEmpty()) ", wake ok" else ""}"
         }.apply { start() } }.forEach { it.join() }
         val a = Addresses.find()

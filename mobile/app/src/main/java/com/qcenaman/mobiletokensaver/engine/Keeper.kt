@@ -16,7 +16,7 @@ import rikka.shizuku.Shizuku
  * and when Wi-Fi returns (for the ADB fallback). Asks for an ADB pairing code only when nothing else can start it.
  */
 object Keeper {
-    private const val EVERY_MS = 30_000L
+    private const val EVERY_MS = 5_000L // short tick; repair() spaces the real attempts out with backoff
     @Volatile private var running = false
     @Volatile private var wifiUp = false
     @Volatile private var lastPairAsk = 0L
@@ -35,6 +35,15 @@ object Keeper {
                     override fun onLost(n: Network) { wifiUp = false }
                 })
         }
+        // Any network change (Wi-Fi ↔ Ethernet, a new eth0, VPN): the ADB connection may point at a dead address and the
+        // helper may have gone with adbd, so re-check the shell at once.
+        runCatching {
+            cm.registerDefaultNetworkCallback(object : ConnectivityManager.NetworkCallback() {
+                override fun onAvailable(n: Network) { netChanged(app, "network up") }
+                override fun onLost(n: Network) { netChanged(app, "network lost") }
+                override fun onLinkPropertiesChanged(n: Network, lp: android.net.LinkProperties) { netChanged(app, "addresses changed") }
+            })
+        }
         runCatching {
             Shizuku.addBinderReceivedListenerSticky { kick(app) }
             Shizuku.addRequestPermissionResultListener { _, r -> if (r == PackageManager.PERMISSION_GRANTED) { CmdLog.add("Shizuku permission granted"); kick(app) } }
@@ -47,12 +56,46 @@ object Keeper {
         }.apply { isDaemon = true; name = "keeper" }.start()
     }
 
+    @Volatile private var lastNet = 0L
+
+    private fun netChanged(ctx: Context, why: String) {
+        val now = System.currentTimeMillis()
+        if (now - lastNet < 3_000) return // one burst of callbacks = one re-check
+        lastNet = now
+        CmdLog.add("shell re-check: $why")
+        if (!HelperClient.alive()) runCatching { AdbManager.get(ctx).dropConnection() }
+        kick(ctx)
+    }
+
     /** Wake the loop now instead of at its next tick. */
-    fun kick(ctx: Context) { synchronized(lock) { lock.notifyAll() } }
+    fun kick(ctx: Context) { kicked = true; synchronized(lock) { lock.notifyAll() } }
+    @Volatile private var kicked = false
+
+    @Volatile private var lastShizukuAsk = 0L
+    @Volatile private var lastGood = 0L
+    @Volatile private var backoffMs = 0L
+    @Volatile private var nextTry = 0L
 
     private fun repair(ctx: Context) {
-        if (HelperClient.alive()) return
-        if (HelperClient.ensureStarted(ctx)) return
+        val t0 = System.currentTimeMillis()
+        if (t0 - lastGood < 30_000 && HelperClient.alive()) return // checked by a real command less than 30 s ago
+        if (HelperClient.works()) { backoffMs = 0L; lastGood = t0; return }
+        // retry with backoff while nothing works (a kick from a grant or network change skips the wait)
+        val now = System.currentTimeMillis()
+        if (now < nextTry && !kicked) return
+        kicked = false
+        backoffMs = if (backoffMs == 0L) 5_000L else minOf(backoffMs * 2, 5 * 60_000L)
+        nextTry = now + backoffMs
+        if (HelperClient.alive()) { if (HelperClient.relaunch(ctx, reason = "watchdog: it answers but cannot run commands")) { backoffMs = 0L; return } }
+        else if (HelperClient.ensureStarted(ctx)) { backoffMs = 0L; return }
+        // Shizuku running but not allowed: ask, and if the dialog is not answered, accept it on screen (screen-off only).
+        if (Privileged.shizukuState() == Privileged.ShizukuState.NO_PERMISSION) {
+            Privileged.requestShizuku()
+            if (now - lastShizukuAsk > 20 * 60_000L) {
+                lastShizukuAsk = now
+                if (UiAdbSetup.acceptShizuku(ctx) && HelperClient.ensureStarted(ctx)) { backoffMs = 0L; return }
+            }
+        }
         if (Privileged.suPath() != null) return
         if (!wifiUp(ctx)) return
         enableWirelessDebugging(ctx)

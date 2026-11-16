@@ -27,7 +27,7 @@ import (
 )
 
 // defaultPairAllow: the devices allowed to pair unless pairing.json says otherwise.
-var defaultPairAllow = []string{"ultimateviruscollection", "omegajin-g1619-04", "iris-s24-ultra"}
+var defaultPairAllow = []string{"ultimateviruscollection", "omegajin-g1619-04", "iris-s24-ultra", "mcam-beelink", "iris-tab-s9-ultra", "afonsinho-tv"}
 
 type pairingConfig struct {
 	Allow []string `json:"allow"`

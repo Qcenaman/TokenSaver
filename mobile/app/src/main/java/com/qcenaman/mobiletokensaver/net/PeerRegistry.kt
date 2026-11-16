@@ -67,7 +67,8 @@ object PeerRegistry {
             .take(5)
 
     /** The relay could not reach the target, or runs a version that cannot relay. */
-    fun relayUnable(msg: String) = UNREACHABLE in msg || "not its peer tool" in msg || "unknown tool" in msg || "not in this node's registry" in msg
+    fun relayUnable(msg: String) = UNREACHABLE in msg || "not its peer tool" in msg || "unknown tool" in msg ||
+        "not in this node's registry" in msg || "token rejected" in msg || "rejected the stored token" in msg
 
     /** Old one-off link files (/data/local/tmp/<x>-tokensaver.json) → name to entry, or null. */
     fun fromLinkFile(fileName: String, m: Map<String, Any?>): Pair<String, Map<String, Any?>>? {

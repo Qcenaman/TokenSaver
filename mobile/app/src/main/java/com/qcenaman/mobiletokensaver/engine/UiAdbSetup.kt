@@ -78,6 +78,37 @@ object UiAdbSetup {
         }
     }
 
+    /**
+     * Shizuku is running but MobileTokenSaver is not allowed: ask for it and press "Allow all the time" in Shizuku's
+     * dialog through accessibility. Only while the screen is off (never over what the user is doing); the screen goes
+     * back off afterwards.
+     */
+    fun acceptShizuku(ctx: Context): Boolean {
+        val svc = A11yService.instance ?: return false
+        val pm = ctx.getSystemService(PowerManager::class.java)
+        if (running || pm.isInteractive) return false
+        running = true
+        @Suppress("DEPRECATION")
+        val wl = pm.newWakeLock(PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP, "mts:shizuku")
+        try {
+            wl.acquire(60_000L)
+            Thread.sleep(600)
+            if (!unlock(ctx, svc)) { log("shizuku: screen locked and no unlock PIN saved"); return false }
+            Privileged.requestShizuku()
+            val hit = waitFor(svc, listOf("Allow all the time", "Allow"), 8_000) ?: run { log("shizuku: no permission dialog seen"); return false }
+            tap(svc, hit, exactOnly = true)
+            for (i in 1..10) { Thread.sleep(400); if (Privileged.shizukuState() == Privileged.ShizukuState.READY) { log("shizuku: allowed"); return true } }
+            log("shizuku: still not allowed after tapping \"$hit\"")
+            return false
+        } catch (e: Throwable) {
+            log("shizuku: ${e.javaClass.simpleName}: ${e.message}"); return false
+        } finally {
+            runCatching { svc.performGlobalAction(AccessibilityService.GLOBAL_ACTION_LOCK_SCREEN) }
+            runCatching { if (wl.isHeld) wl.release() }
+            running = false
+        }
+    }
+
     private fun done(ok: Boolean, msg: String): Result { lastResult = msg; log(msg); return Result(ok, msg) }
 
     // ---- screen helpers: tree first, OCR second ----

@@ -53,6 +53,7 @@ class HttpServer(port: Int, private val mcp: McpServer = McpServer(Registry.tool
             }
             path == "/link" && s.method == Method.POST -> link(s)
             path == "/peers/sync" && s.method == Method.POST -> peersSync(s)
+            path == "/peers/whoami" -> text(Response.Status.OK, Peers.selfName())
             path == "/" -> text(Response.Status.OK, "MobileTokenSaver: MCP endpoint is /mcp")
             else -> text(Response.Status.NOT_FOUND, "not found")
         }

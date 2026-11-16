@@ -25,6 +25,11 @@ import java.util.concurrent.TimeUnit
 class AdbManager private constructor(dir: File) : AbsAdbConnectionManager() {
     @Volatile var needsPairing = false
         private set
+    /** Why the last connect failed ("" after a success); never holds keys or codes. */
+    @Volatile var lastConnectError = ""
+        private set
+    private val connectLock = java.util.concurrent.locks.ReentrantLock()
+    @Volatile private var attemptSince = 0L
     private val key: PrivateKey
     private val cert: Certificate
 
@@ -56,24 +61,43 @@ class AdbManager private constructor(dir: File) : AbsAdbConnectionManager() {
     override fun getCertificate(): Certificate = cert
     override fun getDeviceName(): String = "MobileTokenSaver"
 
-    /** Connect to this phone's adbd (discovers the TLS port over mDNS). */
-    @Synchronized
+    /**
+     * Connect to this phone's adbd (discovers the TLS port over mDNS). Never queues behind a hung attempt: a caller
+     * waits up to 10 s for the lock, and an attempt hanging longer than 45 s gets its connection dropped (which ends
+     * the stuck read) so the next call starts clean.
+     */
     fun ensureConnected(ctx: Context): Boolean {
         if (isConnected) return true
-        if (connectLoopback()) { needsPairing = false; CmdLog.add("adb connected over loopback (no Wi-Fi needed)"); return true }
-        return try {
+        if (!connectLock.tryLock(10, TimeUnit.SECONDS)) {
+            val since = attemptSince
+            if (since > 0 && System.currentTimeMillis() - since > 45_000) {
+                CmdLog.add("adb: connect attempt hung ${(System.currentTimeMillis() - since) / 1000}s, dropping it")
+                dropConnection()
+            }
+            lastConnectError = "a previous connect attempt is still running"
+            return false
+        }
+        attemptSince = System.currentTimeMillis()
+        try {
+            if (isConnected) return true
+            if (connectLoopback()) { needsPairing = false; lastConnectError = ""; CmdLog.add("adb connected over loopback (no Wi-Fi needed)"); return true }
             val ok = connectTls(ctx, 8_000) || autoConnect(ctx, 5_000)
-            if (ok) { needsPairing = false; CmdLog.add("adb connected"); switchToTcp() }
-            ok
+            if (ok) { needsPairing = false; lastConnectError = ""; CmdLog.add("adb connected"); switchToTcp() } else lastConnectError = "adbd not found (Wireless debugging off?)"
+            return ok
         } catch (e: io.github.muntashirakon.adb.AdbPairingRequiredException) {
             needsPairing = true
+            lastConnectError = "pairing required"
             CmdLog.add("adb: pairing required")
-            false
+            return false
         } catch (e: Throwable) {
-            CmdLog.add("adb connect failed: ${e.javaClass.simpleName}: ${e.message}")
-            false
-        }
+            lastConnectError = "${e.javaClass.simpleName}: ${e.message}".take(160)
+            CmdLog.add("adb connect failed: $lastConnectError")
+            return false
+        } finally { attemptSince = 0L; connectLock.unlock() }
     }
+
+    /** Drop the current (possibly half-dead) connection; the next ensureConnected reconnects. */
+    fun dropConnection() { runCatching { disconnect() } }
 
     private fun connectLoopback(): Boolean =
         loopbackOpen() && runCatching { connect("127.0.0.1", TCP_PORT) }.getOrDefault(false)

@@ -31,7 +31,7 @@ func fakeTailnet(t *testing.T) *int {
 	nodes := map[string]tsNode{
 		tDesktopIP:   {Name: "ultimateviruscollection", Tailnet: tTailnet, UserID: tOwner, Login: "owner@example.com", OS: "windows", Online: true, IPs: []string{tDesktopIP}},
 		tLaptopIP:    {Name: "omegajin-g1619-04", Tailnet: tTailnet, UserID: tOwner, Login: "owner@example.com", OS: "linux", Online: true, IPs: []string{tLaptopIP}},
-		tTVIP:        {Name: "afonsinho-tv", Tailnet: tTailnet, UserID: tOwner, Login: "owner@example.com", OS: "android", Online: true, IPs: []string{tTVIP}},
+		tTVIP:        {Name: "stranger-tv", Tailnet: tTailnet, UserID: tOwner, Login: "owner@example.com", OS: "android", Online: true, IPs: []string{tTVIP}},
 		"100.80.0.1": {Name: "iris-s24-ultra", Tailnet: tTailnet, UserID: 7, Login: "someone@example.com", OS: "android", Online: true},
 		"100.80.0.2": {Name: "ultimateviruscollection", Tailnet: "other.ts.net", UserID: 99, Login: "sharer@example.com", Shared: true},
 	}
@@ -134,7 +134,7 @@ func TestPairLogNeverHoldsToken(t *testing.T) {
 
 func TestPairAllowlistFile(t *testing.T) {
 	fakeTailnet(t)
-	writeJSONAtomic(pairingCfgPath(), pairingConfig{Allow: []string{"Afonsinho-TV"}})
+	writeJSONAtomic(pairingCfgPath(), pairingConfig{Allow: []string{"Stranger-TV"}})
 	if w := pairReq(tTVIP, tLaptopIP, nil); w.Code != 200 {
 		t.Fatalf("device added in pairing.json: %d", w.Code)
 	}
@@ -208,7 +208,7 @@ func TestPeerPairAndCall(t *testing.T) {
 	if loadPeers()["omegajin-g1619-04"].Token != "rotated-token" {
 		t.Fatal("not re-paired after the token changed")
 	}
-	if _, _, err := toolPeer(json.RawMessage(`{"action":"call","peer":"afonsinho-tv","tool":"scan"}`)); err == nil {
+	if _, _, err := toolPeer(json.RawMessage(`{"action":"call","peer":"stranger-tv","tool":"scan"}`)); err == nil {
 		t.Fatal("call to a device not on the tailnet list should fail")
 	}
 }
