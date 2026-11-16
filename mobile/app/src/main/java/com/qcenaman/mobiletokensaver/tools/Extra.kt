@@ -67,7 +67,7 @@ object Extra {
                 if (hops > 0) return@Tool ToolResult.ok(sent)
                 for (d in longArrayOf(5_000, 10_000, 15_000, 20_000, 20_000, 20_000)) {
                     try { Thread.sleep(d) } catch (_: InterruptedException) { break }
-                    P.reach(e).first?.let { return@Tool ToolResult.ok("$sent\n$n is up (${it.second})") }
+                    P.reach(e, n).first?.let { return@Tool ToolResult.ok("$sent\n$n is up (${it.second})") }
                 }
                 ToolResult.ok("$sent\n$n not answering yet after ~90 s")
             }

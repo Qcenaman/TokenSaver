@@ -136,11 +136,39 @@ object Device {
 
     val system = Tool("system", "Phone state: battery, network, storage.",
         """{"type":"object","properties":{}}""") { _ ->
-        val bat = Shell.run(ctx, "dumpsys battery | grep -E 'level|status|temperature'").second
-        val net = Shell.run(ctx, "settings get global wifi_on; ip route 2>/dev/null | head -1").second
-        val disk = Shell.run(ctx, "df -h /sdcard | tail -1").second
-        ToolResult.ok("-- shell --\n${Shell.status(ctx)}\n-- addresses --\n${com.qcenaman.mobiletokensaver.net.Addresses.summary()}\n-- battery --\n$bat\n-- network --\n$net\n-- storage --\n$disk")
+        val sh = Shell.state(ctx)
+        val shellOk = !sh.startsWith("channel: down")
+        fun viaShell(cmd: String): String? = if (!shellOk) null else Shell.run(ctx, cmd).let { (c, o) -> if (c == -1) null else o }
+        // When the shell is down the same facts come from Android's own APIs (no shell needed).
+        val bat = viaShell("dumpsys battery | grep -E 'level|status|temperature'") ?: apiBattery()
+        val net = viaShell("settings get global wifi_on; ip route 2>/dev/null | head -1") ?: apiNetwork()
+        val disk = viaShell("df -h /sdcard | tail -1") ?: apiStorage()
+        ToolResult.ok("-- shell --\n$sh\n-- addresses --\n${com.qcenaman.mobiletokensaver.net.Addresses.summary()}\n-- battery --\n$bat\n-- network --\n$net\n-- storage --\n$disk")
     }
+
+    private fun apiBattery(): String {
+        val i = ctx.registerReceiver(null, android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED)) ?: return "(unknown)"
+        val lvl = i.getIntExtra(android.os.BatteryManager.EXTRA_LEVEL, -1); val sc = i.getIntExtra(android.os.BatteryManager.EXTRA_SCALE, 100)
+        val st = i.getIntExtra(android.os.BatteryManager.EXTRA_STATUS, 0); val t = i.getIntExtra(android.os.BatteryManager.EXTRA_TEMPERATURE, 0)
+        return "level: ${if (lvl >= 0) lvl * 100 / sc else -1}\nstatus: $st\ntemperature: $t (from Android, shell down)"
+    }
+
+    private fun apiNetwork(): String = runCatching {
+        val cm = ctx.getSystemService(android.net.ConnectivityManager::class.java)
+        @Suppress("DEPRECATION")
+        cm.allNetworks.mapNotNull { n ->
+            val caps = cm.getNetworkCapabilities(n) ?: return@mapNotNull null
+            val kind = listOf(android.net.NetworkCapabilities.TRANSPORT_WIFI to "wifi", android.net.NetworkCapabilities.TRANSPORT_ETHERNET to "ethernet",
+                android.net.NetworkCapabilities.TRANSPORT_CELLULAR to "cellular", android.net.NetworkCapabilities.TRANSPORT_VPN to "vpn").firstOrNull { caps.hasTransport(it.first) }?.second ?: "other"
+            val lp = cm.getLinkProperties(n)
+            "$kind ${lp?.interfaceName ?: ""} ${lp?.linkAddresses?.joinToString(" ") ?: ""}".trim()
+        }.joinToString("\n").ifEmpty { "(no network)" } + "\n(from Android, shell down)"
+    }.getOrDefault("(unknown)")
+
+    private fun apiStorage(): String = runCatching {
+        val st = android.os.StatFs(android.os.Environment.getExternalStorageDirectory().path)
+        "free ${st.availableBytes / (1L shl 30)} GB of ${st.totalBytes / (1L shl 30)} GB (from Android, shell down)"
+    }.getOrDefault("(unknown)")
 
     val web = Tool("web", "Fetch a URL on the phone and return clean text.",
         """{"type":"object","properties":{"url":{"type":"string"},"max_chars":{"type":"integer"}},"required":["url"]}""") { a ->

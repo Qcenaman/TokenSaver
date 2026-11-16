@@ -69,6 +69,7 @@ class PeerRegistryTest {
     @Test fun relayUnableTellsCantReachFromToolErrors() {
         assertTrue(PeerRegistry.relayUnable("peer-unreachable: ultimateviruscollection: lan timeout"))
         assertTrue(PeerRegistry.relayUnable("unknown tool: peer"))
+        assertTrue(PeerRegistry.relayUnable("token rejected"))
         assertFalse(PeerRegistry.relayUnable("exit=1 file not found"))
     }
 }

@@ -21,12 +21,40 @@ object Privileged {
         override val name = "shizuku"
         override fun usable(ctx: Context) = shizukuState() == ShizukuState.READY
         override fun launch(ctx: Context, cmd: String): Boolean {
-            // Shizuku 13 keeps newProcess private; it is still the simplest way to run one line as its uid.
-            val m = Shizuku::class.java.getDeclaredMethod("newProcess", Array<String>::class.java, Array<String>::class.java, String::class.java)
-            m.isAccessible = true
-            val p = m.invoke(null, arrayOf("sh", "-c", cmd), null, null) as Process
+            val p = newProcess(cmd)
             p.inputStream.readBytes(); p.waitFor()
             return true
+        }
+
+        // Shizuku 13 keeps newProcess private; it is still the simplest way to run one line as its uid.
+        private fun newProcess(cmd: String): Process {
+            val m = Shizuku::class.java.getDeclaredMethod("newProcess", Array<String>::class.java, Array<String>::class.java, String::class.java)
+            m.isAccessible = true
+            return m.invoke(null, arrayOf("sh", "-c", cmd), null, null) as Process
+        }
+
+        /** One command straight through Shizuku (no helper): streams merged output, returns the exit code. */
+        fun exec(cmd: String, onPid: (Int) -> Unit, onData: (ByteArray, Int) -> Unit): Int {
+            val b64 = android.util.Base64.encodeToString(cmd.toByteArray(), android.util.Base64.NO_WRAP)
+            val p = newProcess("echo __MTS_PID=\$\$; exec sh -c \"\$(echo $b64 | base64 -d)\" 2>&1")
+            val buf = ByteArray(16384)
+            var first = true
+            p.inputStream.use { ps ->
+                while (true) {
+                    val r = ps.read(buf); if (r < 0) break
+                    var off = 0
+                    if (first) {
+                        first = false
+                        val head = String(buf, 0, r, Charsets.UTF_8); val nl = head.indexOf('\n')
+                        if (head.startsWith("__MTS_PID=") && nl > 0) {
+                            com.qcenaman.mobiletokensaver.helper.Main.pidOf(head, nl).takeIf { it > 0 }?.let(onPid)
+                            off = head.substring(0, nl + 1).toByteArray(Charsets.UTF_8).size
+                        }
+                    }
+                    if (r - off > 0) onData(buf.copyOfRange(off, r), r - off)
+                }
+            }
+            return p.waitFor()
         }
     }
 

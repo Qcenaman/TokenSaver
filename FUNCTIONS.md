@@ -1,6 +1,6 @@
 # TokenSaver functions
 
-**Version 2.13.0**
+**Version 2.14.0**
 
 Windows PC helper that Claude hands work to, so the steps run on the PC instead of costing tokens in the chat. Runs as an MCP server in Claude desktop. Everything it keeps is in `D:\Claude Apps\TokenSaver`.
 
@@ -34,6 +34,9 @@ Windows PC helper that Claude hands work to, so the steps run on the PC instead 
 Also: GitHub repos as paths (owner/name[@ref][/sub] in find, read, scan, check, outline and git) read from a temporary copy TokenSaver keeps on the PC, updated as needed and removed after a day unused, so Claude never clones repos itself; tells Claude desktop to prefer TokenSaver over its built-in tools, undo for file jobs, job-end signals through GitHub (no polling), protected system folders; the terminal also reconnects Claude desktop and installs or removes the admin helper.
 
 ## What's new
+### 2.14.0
+- peer: a route answered by another device (the other OS of a dual-boot PC on the same LAN IP) no longer counts as up (new /peers/whoami); a relay that rejects the token no longer ends the fallback chain
+- the tablet, the TV and Michie Pc are on the default pairing allowlist
 ### 2.13.0
 - one shared peer registry for every device (name, LAN, Tailscale, MAC, port, token): any device that knows a link hands it to the others; newest announcement wins, so a changed token or IP heals itself
 - peer call falls back LAN → Tailscale → tunnel → relay through another device → adb → Wake-on-LAN (also sent from the devices at home) with retries; new peer actions wake, relay, sync, adopt, allow

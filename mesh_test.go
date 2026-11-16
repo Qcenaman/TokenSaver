@@ -16,14 +16,15 @@ import (
 func fakeMesh(t *testing.T) {
 	t.Helper()
 	fakeTailnet(t)
-	oldSelf, oldProbe, oldCall, oldMagic, oldSleep, oldFwd := meshSelfFn, meshProbeFn, meshCallFn, sendMagicFn, meshSleep, adbForwardFn
+	oldSelf, oldProbe, oldCall, oldMagic, oldSleep, oldFwd, oldWho := meshSelfFn, meshProbeFn, meshCallFn, sendMagicFn, meshSleep, adbForwardFn, meshWhoamiFn
+	meshWhoamiFn = func(string, time.Duration) string { return "" }
 	meshSelfFn = func() (string, peerEntry, bool) {
 		return "omegajin-g1619-04", peerEntry{IP: tLaptopIP, Port: 8766, Token: "laptop-secret-token", Kind: "computer", Updated: time.Unix(1000, 0)}, false
 	}
 	meshSleep = func(time.Duration) {}
 	adbForwardFn = func(string, int) (string, func(), error) { return "", nil, errors.New("adb not connected") }
 	t.Cleanup(func() {
-		meshSelfFn, meshProbeFn, meshCallFn, sendMagicFn, meshSleep, adbForwardFn = oldSelf, oldProbe, oldCall, oldMagic, oldSleep, oldFwd
+		meshSelfFn, meshProbeFn, meshCallFn, sendMagicFn, meshSleep, adbForwardFn, meshWhoamiFn = oldSelf, oldProbe, oldCall, oldMagic, oldSleep, oldFwd, oldWho
 	})
 }
 
@@ -220,10 +221,10 @@ func TestMeshStatusHidesTokens(t *testing.T) {
 
 func TestPairAllowAdd(t *testing.T) {
 	fakeMesh(t)
-	if _, _, err := toolPeer(json.RawMessage(`{"action":"allow","peer":"Afonsinho-TV"}`)); err != nil {
+	if _, _, err := toolPeer(json.RawMessage(`{"action":"allow","peer":"Stranger-TV"}`)); err != nil {
 		t.Fatal(err)
 	}
-	if !pairAllowed("afonsinho-tv") || !pairAllowed("ultimateviruscollection") {
+	if !pairAllowed("stranger-tv") || !pairAllowed("ultimateviruscollection") {
 		t.Fatalf("allowlist: %v", pairAllowlist())
 	}
 }
@@ -239,5 +240,55 @@ func TestCleanCLIXML(t *testing.T) {
 	}
 	if cleanCLIXML("plain") != "plain" {
 		t.Fatal("plain text changed")
+	}
+}
+
+// Michie Pc booted into Linux answers on the Windows side's LAN IP: that route must not count, and a relay that
+// rejects our token must not end the chain.
+func TestMeshDualBootAndRelay401(t *testing.T) {
+	fakeMesh(t)
+	savePeer("mcam-beelink", peerEntry{IP: "100.104.221.41", LAN: "192.168.1.119", Port: 8766, Token: "win-token", Paired: time.Now()})
+	savePeer("michie-linux", peerEntry{IP: "100.67.214.86", LAN: "192.168.1.119", Port: 8766, Token: "linux-token", Paired: time.Now()})
+	savePeer("tablet", peerEntry{IP: "100.76.11.44", Port: 8765, Token: "tablet-token", Kind: "android", Paired: time.Now()})
+	savePeer("ultimateviruscollection", peerEntry{IP: tDesktopIP, Port: 8766, Token: "desk-token", Paired: time.Now()})
+	meshProbeFn = func(base string, _ time.Duration) string {
+		if strings.Contains(base, "192.168.1.119") || strings.Contains(base, "100.76.11.44") || strings.Contains(base, "100.67.214.86") {
+			return ""
+		}
+		return "timeout"
+	}
+	meshWhoamiFn = func(base string, _ time.Duration) string {
+		switch {
+		case strings.Contains(base, "192.168.1.119"):
+			return "michie-linux"
+		case strings.Contains(base, "100.76.11.44"):
+			return "tablet"
+		}
+		return ""
+	}
+	if _, _, tried := meshReachNamed("mcam-beelink", loadPeers()["mcam-beelink"]); !strings.Contains(strings.Join(tried, ","), "answered by michie-linux") {
+		t.Fatalf("dual boot not noticed: %v", tried)
+	}
+	if b, _, _ := meshReachNamed("michie-linux", loadPeers()["michie-linux"]); !strings.Contains(b, "192.168.1.119") {
+		t.Fatalf("michie-linux should be reached on its LAN IP, got %q", b)
+	}
+	var relays []string
+	meshCallFn = func(_ *http.Client, base, token, tool string, _ json.RawMessage) (string, []toolImage, int, error) {
+		relays = append(relays, base)
+		if token == "linux-token" { // michie-linux (first computer relay after primary/android) rejects us
+			return "", nil, 401, errors.New("unauthorized")
+		}
+		if token == "tablet-token" {
+			return "via tablet ok", nil, 200, nil
+		}
+		return "", nil, 401, errors.New("unauthorized")
+	}
+	sendMagicFn = func(string, string) error { return nil }
+	out, _, via, err := meshCall("ultimateviruscollection", "scan", nil, 0)
+	if err != nil || via != "relay tablet" || out != "via tablet ok" {
+		t.Fatalf("got %q %q %v (calls %v)", out, via, err, relays)
+	}
+	if !relayUnable(errors.New("michie-linux rejected the stored token and no newer one was found")) {
+		t.Fatal("a rejected token must count as relay-unable")
 	}
 }

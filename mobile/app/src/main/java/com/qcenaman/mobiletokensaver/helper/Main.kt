@@ -60,7 +60,7 @@ object Main {
                         val head = String(buf, 0, r, Charsets.UTF_8)
                         val nl = head.indexOf('\n')
                         if (head.startsWith("__MTS_PID=") && nl > 0) {
-                            frame(out, 2, intBytes(head.substring(15, nl).trim().toIntOrNull() ?: -1))
+                            frame(out, 2, intBytes(pidOf(head, nl)))
                             val skip = head.substring(0, nl + 1).toByteArray(Charsets.UTF_8).size
                             off = skip; len = r - skip
                         }
@@ -70,9 +70,22 @@ object Main {
             }
             frame(out, 3, intBytes(p.waitFor()))
             out.flush()
-        } catch (_: Exception) {
+        } catch (t: Throwable) {
+            // Never hang up silently: the app treats a closed socket as a dead helper. Say what broke, exit 255.
+            runCatching {
+                val out = DataOutputStream(s.getOutputStream())
+                frame(out, 1, "helper error: ${t.javaClass.simpleName}: ${t.message}\n".toByteArray())
+                frame(out, 3, intBytes(255))
+            }
         } finally { try { s.close() } catch (_: Exception) {} }
     }
+
+    private const val PID_MARK = "__MTS_PID="
+
+    /** The pid from the first output line "__MTS_PID=<pid>" (any number of digits); -1 when unreadable. */
+    @JvmStatic
+    fun pidOf(head: String, nl: Int): Int =
+        if (nl <= PID_MARK.length) -1 else head.substring(PID_MARK.length, nl).trim().toIntOrNull() ?: -1
 
     private fun frame(out: DataOutputStream, type: Int, payload: ByteArray) {
         synchronized(out) { out.writeByte(type); out.writeInt(payload.size); out.write(payload); out.flush() }

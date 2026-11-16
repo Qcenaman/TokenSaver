@@ -318,12 +318,39 @@ var meshProbeFn = func(base string, timeout time.Duration) string {
 	return ""
 }
 
-// meshReachDirect: the first route that answers, and what each route said.
+// meshWhoamiFn: the name the TokenSaver at base gives itself ("" when it can't tell: older versions). A variable for tests.
+var meshWhoamiFn = func(base string, timeout time.Duration) string {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	req, _ := http.NewRequestWithContext(ctx, "GET", base+"/peers/whoami", nil)
+	resp, err := peerHTTP.Do(req)
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return ""
+	}
+	b, _ := io.ReadAll(io.LimitReader(resp.Body, 200))
+	return normName(string(b))
+}
+
+// meshReachDirect: the first route that answers as this device, and what each route said. A route answered by a
+// different device (the other OS of a dual-boot PC on the same LAN IP) does not count.
 func meshReachDirect(e peerEntry) (base, via string, tried []string) {
+	return meshReachNamed("", e)
+}
+
+func meshReachNamed(name string, e peerEntry) (base, via string, tried []string) {
 	for _, r := range meshRoutes(e) {
 		why := meshProbeFn(r.Base, r.Timeout)
 		if why == "timeout" && r.Via == "tailscale" { // an idle Tailscale path needs a moment to wake
 			why = meshProbeFn(r.Base, 2*r.Timeout)
+		}
+		if why == "" && name != "" {
+			if who := meshWhoamiFn(r.Base, r.Timeout); who != "" && who != name {
+				why = "answered by " + who
+			}
 		}
 		if why == "" {
 			return r.Base, r.Via, tried
@@ -475,7 +502,7 @@ func meshCall(name, tool string, args json.RawMessage, hops int) (string, []tool
 		}
 		return text, imgs, via, err, true
 	}
-	if base, via, tried := meshReachDirect(e); base != "" {
+	if base, via, tried := meshReachNamed(name, e); base != "" {
 		if t, i, v, err, done := try(base, via); done {
 			return t, i, v, err
 		}
@@ -507,7 +534,7 @@ func meshCall(name, tool string, args json.RawMessage, hops int) (string, []tool
 		notes = append(notes, meshWake(name, e, 0))
 		for _, d := range meshBackoff {
 			meshSleep(d)
-			if base, via, _ := meshReachDirect(e); base != "" {
+			if base, via, _ := meshReachNamed(name, e); base != "" {
 				if t, i, v, err, done := try(base, via+" after wake"); done {
 					return t, i, v, err
 				}
@@ -525,16 +552,17 @@ func relayUnable(err error) bool {
 	}
 	m := err.Error()
 	return strings.Contains(m, errUnreachablePrefix) || strings.Contains(m, "not its peer tool") ||
-		strings.Contains(m, "unknown tool") || strings.Contains(m, "not in this node's registry")
+		strings.Contains(m, "unknown tool") || strings.Contains(m, "not in this node's registry") ||
+		strings.Contains(m, "rejected the stored token") || strings.Contains(m, "token rejected")
 }
 
 // meshViaRelay asks relay's peer tool to run tool on target (one hop, no further relays).
 func meshViaRelay(relay, target, tool string, args json.RawMessage) (string, []toolImage, error) {
-	_, r, ok := meshLookup(relay)
+	relay, r, ok := meshLookup(relay)
 	if !ok {
 		return "", nil, errors.New(errUnreachablePrefix + relay + " unknown")
 	}
-	base, _, _ := meshReachDirect(r)
+	base, _, _ := meshReachNamed(relay, r)
 	if base == "" {
 		return "", nil, errors.New(errUnreachablePrefix + relay + " itself unreachable")
 	}
@@ -599,7 +627,7 @@ func meshWake(name string, e peerEntry, hops int) string {
 			go func(r string) {
 				defer wg.Done()
 				_, re, _ := meshLookup(r)
-				base, _, _ := meshReachDirect(re)
+				base, _, _ := meshReachNamed(r, re)
 				if base == "" {
 					return
 				}
@@ -620,7 +648,7 @@ func meshWake(name string, e peerEntry, hops int) string {
 
 // meshSyncWith swaps registries with one node over its direct routes.
 func meshSyncWith(name string, e peerEntry) error {
-	base, _, tried := meshReachDirect(e)
+	base, _, tried := meshReachNamed(name, e)
 	if base == "" {
 		return fmt.Errorf("unreachable (%s)", strings.Join(tried, ", "))
 	}
@@ -907,7 +935,7 @@ func toolPeer(raw json.RawMessage) (string, []toolImage, error) {
 		if a.Hops == 0 {
 			for _, d := range meshBackoff {
 				meshSleep(d)
-				if base, via, _ := meshReachDirect(e); base != "" {
+				if base, via, _ := meshReachNamed(name, e); base != "" {
 					return msg + "\n" + name + " is up (" + via + ")", nil, nil
 				}
 			}
@@ -991,6 +1019,8 @@ func meshStatus() string {
 				st := "up"
 				if why := meshProbeFn(r.Base, r.Timeout); why != "" {
 					st = why
+				} else if who := meshWhoamiFn(r.Base, r.Timeout); who != "" && who != n {
+					st = "answered by " + who
 				}
 				rs = append(rs, r.Via+" "+st)
 			}
