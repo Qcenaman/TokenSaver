@@ -25,6 +25,13 @@ object Prefs {
         token
     }
 
+    /** Fingerprints of the user's own computers' adb keys; AdbPrompt approves only these. */
+    var adbTrusted: Set<String>
+
+        get() = sp.getStringSet("adb_trusted", emptySet())?.toSet() ?: emptySet()
+
+        set(v) { sp.edit().putStringSet("adb_trusted", v).apply() }
+
     private lateinit var tokenFile: java.io.File
 
     val token: String

@@ -13,7 +13,7 @@ import java.util.concurrent.TimeUnit
 class A11yService : AccessibilityService() {
     override fun onServiceConnected() { instance = this }
     override fun onDestroy() { if (instance === this) instance = null; super.onDestroy() }
-    override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
+    override fun onAccessibilityEvent(event: AccessibilityEvent?) { if (event != null) AdbPrompt.onEvent(this, event) }
     override fun onInterrupt() {}
 
     data class El(val label: String, val bounds: Rect, val clickable: Boolean, val node: AccessibilityNodeInfo)
