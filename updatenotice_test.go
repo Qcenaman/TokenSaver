@@ -52,3 +52,16 @@ func TestUpdateNoticeAfterInstall(t *testing.T) {
 		t.Fatal("notice should stay the same once found")
 	}
 }
+
+func TestParseVersionOutput(t *testing.T) {
+	for in, want := range map[string]string{
+		"tokensaver 2.14.1 (windows)\n": "2.14.1",
+		"tokensaver 3.0.0":              "3.0.0",
+		"unknown command: version":      "",
+		"":                              "",
+	} {
+		if got := parseVersionOutput(in); got != want {
+			t.Errorf("%q: got %q, want %q", in, got, want)
+		}
+	}
+}

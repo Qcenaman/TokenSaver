@@ -21,6 +21,7 @@ var (
 func initUpdateNotice() {
 	updMu.Lock()
 	defer updMu.Unlock()
+	syncVersionFile()
 	if fi, err := os.Stat(installPath()); err == nil {
 		updStart = fi
 	}
@@ -57,18 +58,41 @@ func updateNoteFor(v string) string {
 		" — restart Claude desktop to load it (system action restart_claude does that)."
 }
 
-// installedVersion reads the version of the installed program: the version.txt install
-// writes next to it, or, failing that, the program's own answer to "version".
+// installedVersion reads the version of the installed program: its own answer to
+// "version" (always right, even when the exe was copied in by hand), or, failing that,
+// the version.txt install writes next to it.
 func installedVersion() string {
 	exe := installPath()
-	if b, err := os.ReadFile(filepath.Join(filepath.Dir(exe), "version.txt")); err == nil {
-		if v := strings.TrimSpace(string(b)); v != "" {
+	if out, err := runQuiet(10*time.Second, exe, "version"); err == nil {
+		if v := parseVersionOutput(out); v != "" {
 			return v
 		}
 	}
-	out, err := runQuiet(10*time.Second, exe, "version")
-	if err != nil {
-		return ""
+	if b, err := os.ReadFile(filepath.Join(filepath.Dir(exe), "version.txt")); err == nil {
+		return strings.TrimSpace(string(b))
 	}
-	return strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(out), "tokensaver"))
+	return ""
+}
+
+// parseVersionOutput turns "tokensaver 2.14.1 (windows)" into "2.14.1".
+func parseVersionOutput(out string) string {
+	f := strings.Fields(strings.TrimSpace(out))
+	if len(f) >= 2 && f[0] == "tokensaver" {
+		return f[1]
+	}
+	return ""
+}
+
+// syncVersionFile rewrites version.txt when the installed program is the one running and
+// the file says another version (an exe copied in by hand never updates it).
+func syncVersionFile() {
+	exe, err := os.Executable()
+	if err != nil || !samePath(exe, installPath()) {
+		return
+	}
+	p := filepath.Join(filepath.Dir(exe), "version.txt")
+	if b, err := os.ReadFile(p); err == nil && strings.TrimSpace(string(b)) == appVersion {
+		return
+	}
+	os.WriteFile(p, []byte(appVersion+"\n"), 0o644)
 }

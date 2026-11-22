@@ -1,6 +1,6 @@
 # TokenSaver functions
 
-**Version 2.14.1**
+**Version 2.14.2**
 
 Windows PC helper that Claude hands work to, so the steps run on the PC instead of costing tokens in the chat. Runs as an MCP server in Claude desktop. Everything it keeps is in `D:\Claude Apps\TokenSaver`.
 
@@ -34,6 +34,8 @@ Windows PC helper that Claude hands work to, so the steps run on the PC instead 
 Also: GitHub repos as paths (owner/name[@ref][/sub] in find, read, scan, check, outline and git) read from a temporary copy TokenSaver keeps on the PC, updated as needed and removed after a day unused, so Claude never clones repos itself; tells Claude desktop to prefer TokenSaver over its built-in tools, undo for file jobs, job-end signals through GitHub (no polling), protected system folders; the terminal also reconnects Claude desktop and installs or removes the admin helper.
 
 ## What's new
+### 2.14.2
+- Fixed: the update notice and version.txt could show an old version (2.12.0) after an exe was copied in by hand; TokenSaver now asks the installed program for its version and rewrites version.txt when it starts
 ### 2.14.1
 - Fixed: TokenSaver no longer drops the PC's other adb keys when it starts adb, so phones, tablet and TV stay authorized
 ### 2.14.0
