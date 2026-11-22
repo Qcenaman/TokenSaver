@@ -472,8 +472,24 @@ func applyServeEnv(c linkConfig) {
 	}
 	os.Setenv("ANDROID_USER_HOME", c.AndroidUserHome)
 	if k := filepath.Join(c.AndroidUserHome, "adbkey"); exists(k) {
-		os.Setenv("ADB_VENDOR_KEYS", k)
+		os.Setenv("ADB_VENDOR_KEYS", mergeKeyList(k, os.Getenv("ADB_VENDOR_KEYS")))
 	}
+}
+
+// mergeKeyList puts key first and keeps every other key already listed (e.g. the SYSTEM account's
+// key set machine-wide), so devices approved for any of the user's adb keys stay authorized.
+func mergeKeyList(key, existing string) string {
+	out := []string{key}
+	seen := map[string]bool{strings.ToLower(key): true}
+	for _, p := range filepath.SplitList(existing) {
+		p = strings.TrimSpace(p)
+		if p == "" || seen[strings.ToLower(p)] {
+			continue
+		}
+		seen[strings.ToLower(p)] = true
+		out = append(out, p)
+	}
+	return strings.Join(out, string(os.PathListSeparator))
 }
 
 // --- route push -------------------------------------------------------------------------------
